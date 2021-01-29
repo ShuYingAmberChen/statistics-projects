@@ -1,0 +1,755 @@
+---
+title : 'W271 Assignment 1'
+subtitle: 'Due 11:59pm Pacific Time, Sunday October 4, 2020'
+author: 'Amber Chen'
+output: 
+  pdf_document:
+  toc: true
+  number_sections: true
+fontsize: 11pt
+geometry: margin=1in
+---
+```{r setup, include = F}
+library(knitr)
+opts_chunk$set(tidy.opts=list(width.cutoff=60),tidy=TRUE)
+
+# Start with a clean R environment
+rm(list = ls())
+
+# Load Libraries
+library(car)
+library(nnet)
+library(plyr)
+library(dplyr)
+library(Hmisc)
+library(skimr)
+library(ggplot2)
+library(stargazer)
+library(mcprofile)
+# For VIF test
+library(mctest)
+# For bp test
+library(lmtest)
+# For plotting side-by-side
+library(grid)
+library(gridExtra)
+```
+
+# 1. Confidence Intervals (2 points)
+
+A Wald confidence interval for a binary response probability does not always have the stated confidence level, $1-\alpha$, where $\alpha$ (the probability of rejecting the null hypothesis when it is true) is often set to $0.05\%$. This was demonstrated with code in the week 1 live session file.
+
+**Question 1.1:** Use the code from the week 1 live session file and: (1) redo the exercise for `n=50, n=100, n=500`, (2) plot the graphs, and (3) describe what you have observed from the results. Use the same `pi.seq` as in the live session code.
+
+```{r}
+pi = 0.6
+alpha = 0.05
+n.list = c(50,100,500)
+
+wald.CI.true.coverage = function(pi, alpha=0.05, n) {
+  
+  w = 0:n
+
+  pi.hat = w/n
+  pmf = dbinom(x=w, size=n, prob=pi)
+  
+  var.wald = pi.hat*(1-pi.hat)/n
+  wald.CI_lower.bound = pi.hat - qnorm(p = 1-alpha/2)*sqrt(var.wald)
+  wald.CI_upper.bound = pi.hat + qnorm(p = 1-alpha/2)*sqrt(var.wald)
+  
+  covered.pi = ifelse(test = pi>wald.CI_lower.bound, yes = ifelse(test = pi<wald.CI_upper.bound, yes=1, no=0), no=0)
+  
+  wald.CI.true.coverage = sum(covered.pi*pmf)
+  
+  wald.df = data.frame(w, pi.hat, round(data.frame(pmf, wald.CI_lower.bound,wald.CI_upper.bound),4), covered.pi)
+  
+  return(wald.df)
+}
+
+for (n in n.list){
+w = 0:n
+wald.df = wald.CI.true.coverage(pi=pi, alpha=0.05, n=n)
+wald.CI.true.coverage.level = sum(wald.df$covered.pi*wald.df$pmf)
+
+# Let's compute the ture coverage for a sequence of pi
+pi.seq = seq(0.01,0.99, by=0.01)
+wald.CI.true.matrix = matrix(data=NA,nrow=length(pi.seq),ncol=2)
+counter=1
+for (pi in pi.seq) {
+    wald.df2 = wald.CI.true.coverage(pi=pi, alpha=0.05, n=n)
+    wald.CI.true.matrix[counter,] = c(pi,sum(wald.df2$covered.pi*wald.df2$pmf))
+    counter = counter+1
+}
+str(wald.CI.true.matrix)
+wald.CI.true.matrix[1:5,]
+
+# Plot the true coverage level (for given n and alpha)
+plot(x=wald.CI.true.matrix[,1],
+     y=wald.CI.true.matrix[,2],
+     ylim=c(0,1),
+     main = "Wald C.I. True Confidence Level Coverage", xlab=expression(pi),
+     ylab="True Confidence Level",
+     type="l")
+abline(h=1-alpha, lty="dotted")
+}
+
+```
+ 
+**Observations from the three graphs**
+- Because of $\sqrt{\hat\pi(1-\hat\pi)/n}$ in Wald Confidence Interval calculation, the lower and upper limits of the approximation are exactly $\hat\pi$ when w = 0 or 1.
+- Also Wald CI limits are symmetric with respect to $\pi$ = 0.5 given $\sqrt{\hat\pi(1-\hat\pi)/n}$ is a symmetric function
+- The true CI level has a greater coverage, and even equal to $1-\alpha$ when $\pi$ is closer to 0.5 than when $\pi$ is away from 0.5
+- we can see that a larger sample size, n, does help a better approximation for $\pi$. When sample size, n, is small, the true CI coverage is more conservative. As n increases, the coverage approaches to $1-\alpha$ from below. This trend is more obvious when $\pi$ is near 0 or 1
+ 
+ 
+**Question 1.2:** (1) Modify the code for the Wilson Interval. (2) Do the exercise for `n=10, n=50, n=100, n=500`. (3) Plot the graphs. (4) Describe what you have observed from the results and compare the Wald and Wilson intervals based on your results. Use the same `pi.seq` as in the live session code.
+
+**Wilson Confidence Interval:
+$$ 
+\tilde{\pi} \pm \frac{Z_{1-\frac{\alpha}{2}} n^{1/2}}{n + Z^2_{1-\frac{\alpha}{2}}} \sqrt{\hat{\pi}(1-\hat{\pi}) + \frac{Z^2_{1-\frac{\alpha}{2}}}{4n}}
+$$
+
+```{r}
+pi = 0.6
+alpha = 0.05
+n.list = c(50,100,500)
+
+wilson.CI.true.coverage = function(pi, alpha=0.05, n) {
+  
+  w = 0:n
+
+  pi.hat = w/n
+  pmf = dbinom(x=w, size=n, prob=pi)
+  
+  var.wilson = pi.hat*(1-pi.hat)+(qnorm(p = 1-alpha/2)^2)/(4*n)
+  wilson.CI_lower.bound = pi.hat - qnorm(p = 1-alpha/2)*sqrt(n)/(n+qnorm(p = 1-alpha/2)^2)*sqrt(var.wilson)
+  wilson.CI_upper.bound = pi.hat + qnorm(p = 1-alpha/2)*sqrt(n)/(n+qnorm(p = 1-alpha/2)^2)*sqrt(var.wilson)
+  
+  covered.pi = ifelse(test = pi>wilson.CI_lower.bound, yes = ifelse(test = pi<wilson.CI_upper.bound, yes=1, no=0), no=0)
+  
+  wilson.CI.true.coverage = sum(covered.pi*pmf)
+  
+  wilson.df = data.frame(w, pi.hat, round(data.frame(pmf, wilson.CI_lower.bound,wilson.CI_upper.bound),4), covered.pi)
+  
+  return(wilson.df)
+}
+
+for (n in n.list){
+w = 0:n
+wilson.df = wilson.CI.true.coverage(pi=pi, alpha=0.05, n=n)
+wilson.CI.true.coverage.level = sum(wilson.df$covered.pi*wilson.df$pmf)
+
+# Let's compute the ture coverage for a sequence of pi
+pi.seq = seq(0.01,0.99, by=0.01)
+wilson.CI.true.matrix = matrix(data=NA,nrow=length(pi.seq),ncol=2)
+counter=1
+for (pi in pi.seq) {
+    wilson.df2 = wilson.CI.true.coverage(pi=pi, alpha=0.05, n=n)
+    #print(paste('True Coverage is', sum(wald.df2$covered.pi*wald.df2$pmf)))
+    wilson.CI.true.matrix[counter,] = c(pi,sum(wilson.df2$covered.pi*wilson.df2$pmf))
+    counter = counter+1
+}
+str(wilson.CI.true.matrix)
+wilson.CI.true.matrix[1:5,]
+
+# Plot the true coverage level (for given n and alpha)
+plot(x=wilson.CI.true.matrix[,1],
+     y=wilson.CI.true.matrix[,2],
+     ylim=c(0,1),
+     main = "Wilson Confidence Interval True Confidence Level Coverage", xlab=expression(pi),
+     ylab="True Confidence Level",
+     type="l")
+abline(h=1-alpha, lty="dotted")
+}
+
+```
+
+**Observations from the above three graphs**
+- Compared to the Wald intervals, the Wilson intervals are closer to $1-\alpha$ for same sample size. For n = 500, the Wilson interval is almost at 0.95 from $\pi = 0$ to $\pi = 0$, whereas the Wald interval is still a bit far way from 0.95 when $\pi$ is close to 0 or 1
+- The Wilson intervals are aggressive for a small sample size. When n = 50 or 100, we can clearly see the coverage is above $1-\alpha = 0.95$ when $\pi$ is close to 0 or 1
+
+\newpage
+# 2: Binary Logistic Regression (2 points)
+**Do Exercise 8 a, b, c, and d on page 131 of Bilder and Loughin's textbook**. 
+Please write down each of the questions. The dataset for this question is stored in the file *"placekick.BW.csv"* which is provided to you. 
+
+In general, all the R codes and datasets used in Bilder and Loughin's book are provided on the book's website: [chrisbilder.com](http://www.chrisbilder.com/categorical/index.html)
+
+For **question 8b**, in addition to answering the question, re-estimate the model in part (a) using $"Sun"$ as the base level category for $Weather$.
+
+Continuing Exercise 7, use the Distance, Weather, Wind15, Temperature, Grass,
+Pressure, and Ice explanatory variables as linear terms in a new logistic regression
+model and complete the following:
+(a) Estimate the model and properly define the indicator variables used within it.
+
+```{r  message=FALSE, warning=FALSE}
+# read in data set
+placekick <- read.csv('placekick.BW.csv')
+glimpse(placekick)
+describe(placekick)
+```
+```{r}
+#Convert indicator variables to binary variables
+placekick$Pressure <- revalue(as.factor(placekick$Pressure),
+                              c("0" = "N", "1" = "Y")) 
+placekick$Good <- revalue(as.factor(placekick$Good),
+                              c("0" = "N", "1" = "Y")) 
+```
+
+
+The logistic model is defined as follow
+$$
+\begin{aligned}
+logit \left( \pi \right)  = log \left( \frac{\pi}{1 - \pi} \right) = \beta_0 + \beta_1 Distance + \beta_2 Weather + \beta_3 I(Wind15) + \\
+\beta_4 Temperature + \beta_5 I(Grass) + \beta_6 I(Pressure) + \beta_7 I(Ice)
+\end{aligned}
+$$
+
+```{r results="asis"}
+logreg.mod = glm(formula = Good ~ Distance + Weather + Wind15 + Temperature + Grass + Pressure + Ice, family = binomial, data = placekick)
+
+# summarize model
+stargazer(logreg.mod, type="latex", summary=F,
+dep.var.labels = c("Probability of a Success in Kick"),
+title = "Binary Logistic Regression Model",
+header=F)
+```
+
+The estimated regression is 
+$$
+\begin{aligned}
+logit \left( \pi \right)  = log \left( \frac{\pi}{1 - \pi} \right) = 5.7402 - 0.1096 Distance - 0.08303 WeatherInside -0.4442 WeatherSnowRain - 0.2476 WeatherSun \\
+- 0.2438 I(Wind15) + 0.2500 TemperatureHot + 0.2349 TemperatureNice 
+- 0.3284 I(Grass) + 0.2702 I(Pressure) - 0.8761 I(Ice)
+\end{aligned}
+$$
+(b) The authors use "Sun" as the base level category for Weather, which is not the
+default level that R uses. Describe how "Sun" can be specified as the base level
+in R.
+
+```{r}
+levels(as.factor(placekick$Weather))
+placekick$SortedWeather = factor(as.factor(placekick$Weather), levels = c("Sun", "Clouds", "Inside", "SnowRain")) 
+levels(placekick$SortedWeather)
+```
+"Sun" can be specified as the base leve by applying factor function with a definition of levels = c("Sun", "Clouds", "Inside", "SnowRain")
+
+(c) Perform LRTs for all explanatory variables to evaluate their importance within
+the model. Discuss the results.
+
+To test the existence of effect of an explanatory variable on all response categories, we set the hypotheses as follow:
+
+$$
+H_0: \beta_{jr} = 0, \quad j=2,\dots,J \quad \text{assuming j=1 is the base category}
+$$
+$$
+H_a: \beta_{jr} \ne 0, \quad \text{for some } j
+$$
+
+```{r}
+anova(logreg.mod, test="LR")
+```
+
+The LRT results show that Distance, Weather and Grass are statistically significant explanatory variables given their p-values are less than 0.05.
+
+
+(d) Estimate an appropriate odds ratio for distance, and compute the corresponding
+confidence interval. Interpret the odds ratio.
+
+The odds ratio for distance is defined as follow:
+$$
+OR = \frac{Odds_{x_1+c}}{Odds_{x_1}}=exp(c \beta_1)
+$$
+
+```{r}
+c = 5
+OR = exp(c*logreg.mod$coefficients["Distance"])
+OR
+OR.rev = exp(-c*logreg.mod$coefficients["Distance"])
+OR.rev
+```
+The odds of a successful kick change by 1.7298 times for every 5 yards derease in distance
+
+```{r}
+alpha = 0.05
+beta.distance.CI <- confint(object = logreg.mod, parm = "Distance", level = 1 - alpha)
+beta.distance.CI
+OR.rev.CI = exp(-c*beta.distance.CI)
+OR.rev.CI
+```
+With 95% confidence, the odds of a success change by an amount between 1.8584 and 1.6141 times for every 5 yards decrease in distance.
+
+\newpage
+# 3: Binary Logistic Regression (2 points)
+The dataset *"admissions.csv"* contains a small sample of graduate school admission data from a university. The variables are specificed below:
+
+  1. admit - the depenent variable that takes two values: $0,1$ where $1$ denotes *admitted* and $0$ denotes *not admitted*
+  
+  2. gre - GRE score
+  
+  3. gpa - College GPA
+  
+  4. rank - rank in college major
+
+Suppose you are hired by the University's Admission Committee and are charged to analyze this data to quantify the effect of GRE, GPA, and college rank on admission probability. We will conduct this analysis by answering the follwing questions:
+
+**Question 3.1:** Examine the data and conduct EDA
+
+```{r}
+# read in data set
+admissions <- read.csv('admissions.csv')
+glimpse(admissions)
+describe(admissions)
+summary(admissions)
+```
+Preliminary EDA using above results:
+
+1. There is no missing value in the dataset
+
+2. The responsible variable of interest, admit, is a binary variable where 1 denotes "admitted" and 0 denotes "not admitted"
+
+3. The dataset includes three explanatory variable: 
+  - student's GRE score
+  - student's college GPA score
+  - college rank
+  
+Then we explored the variables further with visualization:
+
+ - From Figure 1 below and above summary of the data, we can see the GRE scores kind of follows a normal distribution, with mean 580 and median 587. However, a large number of students are concentrated at GRE score = 800
+ 
+ - From Figure 2 below and above summary, we can see the college GPA kind of follows a normal distribution, with mean 3.39 and median 3.395. However, it has a heavy right tail as a large number of students are concentrated  near and at 4.0 GPA.
+ 
+ - Figure 3 and 4 show that students who are admitted into graduate school have higher average of GRE scores than student who are not admitted. Though the trend is visually not very significant, we will conduct further analysis in the next section to see if this variable has a statistically significant effect to admissions
+ 
+ - Table 1 shows that students in lower ranked college tend to not get admitted into graduate school.
+ 
+```{r gre, fig.cap="Histogram of GRE Scores", fig.width = 6, fig.height = 4, fig.fullwidth=F}
+# Histogram of GRE scores
+ggplot(admissions, aes(x = gre)) +
+  geom_histogram(aes(y = ..density..), fill="#0072B2", colour="black") +
+  ggtitle("GRE Score") + 
+  theme(plot.title = element_text(lineheight=1, face="bold"))
+```
+```{r gpa, fig.cap="Histogram of college GPA", fig.width = 6, fig.height = 4, fig.fullwidth=F}
+# Histogram of college GPA 
+ggplot(admissions, aes(x = gpa)) +
+  geom_histogram(aes(y = ..density..), fill="#0072B2", colour="black") +
+  ggtitle("College GPA") + 
+  theme(plot.title = element_text(lineheight=1, face="bold"))
+
+```
+
+
+```{r boxplotgre, fig.cap="GRE Scores by Admissions Boxplot", fig.width = 6, fig.height = 4, fig.fullwidth=F}
+
+# Boxplot of GRE by admissions
+ggplot(admissions, aes(factor(admit), gre)) +
+  geom_boxplot(aes(fill = factor(admit))) + 
+  geom_jitter() +
+  ggtitle("GRE by admissions") + 
+  theme(plot.title = element_text(lineheight=1, face="bold")) 
+```
+
+```{r boxplotgpa, fig.cap="College GPA by Admissions Boxplot", fig.width = 6, fig.height = 4, fig.fullwidth=F}
+# GPA by admissions
+ggplot(admissions, aes(factor(admit), gpa)) +
+  geom_boxplot(aes(fill = factor(admit))) + 
+  geom_jitter() +
+  ggtitle("GPA by admissions") + 
+  theme(plot.title = element_text(lineheight=1, face="bold")) 
+```
+
+```{r rank, results='asis'}
+xtabs(~rank + admit, data=admissions)
+round(prop.table(xtabs(~rank + admit, data=admissions)),2)
+```
+
+**Question 3.2:** Estimate a binary logistic regression using the following set of explanatory variables: $gre$, $gpa$, $rank$, $gre^2$, $gpa^2$, and $gre \times gpa$, where $gre \times gpa$ denotes the interaction between $gre$ and $gpa$ variables
+
+The logistic model is defined as follow
+$$
+\begin{aligned}
+logit \left( \pi \right)  = log \left( \frac{\pi}{1 - \pi} \right) = \beta_0 + \beta_1 GRE + \beta_2 GPA + \beta_3 Rank + \\
+\beta_4 I(GRE^2) + \beta_5 I(GPA^2) + \beta_6 GRE:GPA
+\end{aligned}
+$$
+
+```{r results="asis"}
+admissions.mod = glm(formula = admit ~ gre + gpa + rank + I(gre^2) + I(gpa^2) + gre:gpa, family = 'binomial', data = admissions)
+
+# summarize model
+stargazer(admissions.mod, type="latex", summary=F,
+dep.var.labels = c("Probability of graduate school admissions"),
+title = "Binary Logistic Regression Model",
+header=F)
+```
+
+Based on the results, we get the estimated regression 
+$$
+logit \left( \pi \right)  = log \left( \frac{\pi}{1 - \pi} \right) = -7.092 + 0.01845 GRE - 0.00796GPA- 0.5643Rank + \\
+0.000003495I(GRE^2) + -0.6511I(GPA^2) - 0.005987GRE:GPA
+$$
+
+**Question 3.3:** Test the hypothesis that GRE has no effect on admission using the likelihood ratio test
+
+We use LRT for hypothesis testing, and set our hypothesis as follow
+
+$H_0: \beta_1 = 0$
+$H_a: \beta_1 \ne 0$
+
+To do this, we create a reduced model that has all variables from the above model but not the GRE variable. Then we apply anova() on the two models
+
+```{r}
+admissions.mod2 = glm(formula = admit ~  gpa + rank + I(gre^2) + I(gpa^2) + gre:gpa, family = 'binomial', data = admissions)
+summary(admissions.mod2)
+anova(admissions.mod, admissions.mod2, test="LR")
+```
+
+Based on the result, we cannot reject the null hypothesis as the p-value is 0.1025. Therefore GRE is not statistically significant.
+
+**Question 3.4:** What is the estimated effect of college GPA on admission?
+
+```{r}
+c = 0.1
+exp(c*admissions.mod$coefficients["gpa"])
+```
+The estimated effect of college GPA on admission is 0.999. The odds of a success in graduate school admission change by 0.999 times for every 0.1 increase in GPA.
+
+
+**Question 3.5:** Construct the confidence interval for the admission probability for the students with $GPA = 3.3$, $GRE = 720$, and $rank=1$
+
+
+```{r}
+alpha = 0.05
+
+predict.data <- data.frame(gpa = 3.3, gre = 720, rank = 1)
+
+# predict probability of admission where gpa = 3.3, gre = 720, rank = 1
+linear.pred <- predict(object=admissions.mod, newdata = predict.data, type = "link", se= TRUE)
+pi.hat <- exp(linear.pred$fit)/(1+exp(linear.pred$fit))
+
+# Calculate the CI
+CI.lin.pred <- linear.pred$fit + qnorm(p = c(alpha/2, 1-alpha/2))*linear.pred$se
+CI.pi <- exp(CI.lin.pred)/(1+exp(CI.lin.pred))
+data.frame(predict.data, pi.hat, lower = CI.pi[1], upper = CI.pi[2])
+```
+
+Therefore, the confidence interval is (0.4366982 , 0.6926379) where gpa = 3.3, gre = 720, rank = 1 and the estimated probability is 0.5692897.
+
+\newpage
+# 4. Binary Logistic Regression (2 points)
+
+Load the `Mroz` data set that comes with the *car* library (this data set is used in the week 2 live session file).
+
+**Question 4.1:** Estimate a linear probability model using the same specification as in the binary logistic regression model estimated in the week 2 live session. Interpret the model results. Conduct model diagnostics. Test the CLM model assumptions.
+
+```{r}
+# load Mroz data
+data(Mroz)
+str(Mroz)
+describe(Mroz)
+```
+```{r results="asis"}
+# convert lfp to a binary variable with 1 = "yes" and 0 = "no"
+Mroz$lfp.binary <- ifelse(Mroz$lfp == "yes", 1, 0)
+
+# Estimate the linear probability model
+mroz.lm <- lm(lfp.binary ~ k5 + k618 + age+ wc + hc + lwg + inc, data=Mroz)
+
+# summarize model
+stargazer(mroz.lm, type="latex", summary=F,
+dep.var.labels = c("U.S Women's Labor-Force Participation"),
+title = "Linear Regression Model",
+header=F)
+
+```
+
+Based on Table 3, we get the estimated linear model:
+
+$$
+\begin{aligned}
+y  = 1.1435 - 0.294836K5 - 0.011215 K618 - 0.012741 Age + 0.163679 WCyes + \\
+0.018951 HCyes + 0.12274 LWG - 0.00676Inc
+\end{aligned}
+$$
+The p-values of K618 and HC are greater than 0.05, so the two variables are not statistically significant. The rest of the variables are statistically significant as their p-values are less than 0.05. The $R^2$ numbers indicate a fairly poor fitness-of-fit for the model.
+
+**CLM Assumptions**
+
+Assumption 1: Linear in parameters
+
+In this model, each of our $\beta$ coefficients have linear relationships to the explanatory variables. Additionally, we have not constrained the error term in any way, so this assumption is met.
+
+Assumption 2: Random sampling
+The data includes samples of married women in U.S. from the Panel Study of Income Dynamics (PSID). The data is collected by Panel Study of Income Dynamics (PSID) and the methodology published on their website seems to be a fairly representation of the population. However, we don't know whether they applied weights to the sample, so we cannot conclude that the data points are independently and identically distributed.
+
+Assumption 3: No perfect collinearity 
+Since the model has only one independent variable, $Temperature$, there is no violation of multi-collinearity assumption.
+
+```{r}
+
+mroz.fmla = as.formula("lfp.binary ~ k5 + k618 + age+ wc + hc + lwg + inc")
+mroz.X <- as.matrix(model.matrix(mroz.fmla, data=Mroz))
+imcdiag(mroz.X, Mroz$lfp.binary)
+```
+VIFs for all the variables are just above 1 and less than 2, indicating there is no multicollinearity among the 7 explanatory variables.
+
+Assumption 4: Zero conditional mean
+Examining the following residuals vs fitted plot, a zero conditional mean would be an approximately flat line on the 0-residual. This model differs greatly from that. We can conclude that the model does not satisfy the assumption of zero conditional mean. The figure clearly shows that the residuals have some negative relationship with estimated response values, so there are factors correlated with either our explanatory or dependent variables that are not controlled for in this model.
+
+```{r, fig.cap="Residuals vs. Fitted", out.width = "75%", fig.align='center', fig.fullwidth=T}
+# convert to data frame
+model_df <- fortify(mroz.lm)
+
+# residuals vs. fitted
+ggplot(data = model_df, aes(x = .fitted, y = .resid)) + 
+    geom_point(shape = 21,
+              size = 3,
+              colour = "black",
+              fill = "grey",
+              alpha=0.3) + 
+  geom_smooth(se=F, aes(y = .stdresid), alpha = 0.5, size = 0.5, method = "loess", span = 5, formula = y ~ x) +
+  labs(title = "Residuals vs. Fitted",
+       x ="Fitted values",
+       y = "Residuals") + 
+  theme_classic() + 
+  theme(plot.title = element_text(hjust = 0.5, face="bold"),
+        plot.subtitle = element_text(hjust = 0.5))
+```
+
+Assumption 5: Constant variance in the error term (Homoscedasticity)
+
+Below scale location plot (Fig. 6) shows a trend line sloping up from the left to the middle and then slides down to the right. and the $\sqrt{standardized residuals}$ vs fitted values scatter plot shows a "x" trend. This indicates the variance is not constant.
+
+```{r, fig.cap="Scale-Location", out.width = "75%", fig.align='center', fig.fullwidth=T, warning=F}
+# fitted vs. sqrt of std. resid
+ggplot(data = model_df, aes(x = .fitted, y = sqrt(abs(.stdresid)))) + 
+    geom_point(shape = 21,
+              size = 3,
+              colour = "black",
+              fill = "grey",
+              alpha=0.3) + 
+  geom_smooth(se=F, alpha = 0.5, size = 0.5, method = "loess", formula = y ~ x) +
+  labs(title = "Scale-Location",
+       x ="Fitted values",
+       y = expression(sqrt("Standardized Residuals"))) + 
+  theme_classic() + 
+  theme(plot.title = element_text(hjust = 0.5, face="bold"),
+        plot.subtitle = element_text(hjust = 0.5))
+```
+
+
+```{r bptest, tidy=TRUE, echo=FALSE}
+
+bptest(mroz.lm)
+```
+We further conducted a Breusch-Pagan test. With a p-value considerably less than 0.05, we can reject the null hypothesis of homoscedasticity.
+
+Assumption 6: Normal distribution of error terms
+
+The histogram of residuals and the Normal Q-Q plot (Fig. 7) show the residuals do not have a normal distribution and have heavy tails on both side. 
+
+```{r, fig.cap="Normality of Errors", fig.width = 10, fig.height = 5, fig.fullwidth=T}
+# residuals hist
+p1 <- ggplot(data = model_df, aes(x = .resid)) + 
+  geom_histogram(stat = 'bin', bins = 20, alpha = 0.3,
+                fill = 'blue',
+                color = 'black') +
+  labs(title = "Histogram of Residuals",
+       x ="Residuals",
+       y = "Frequency") + 
+  theme_classic() + 
+  theme(plot.title = element_text(hjust = 0.5, face="bold"),
+        plot.subtitle = element_text(hjust = 0.5))
+
+# Q-Q plot
+p2 <- ggplot(data = model_df, aes(sample = .stdresid)) + 
+  geom_qq(shape = 21,
+              size = 3,
+              colour = "black",
+              fill = "grey",
+              alpha=0.3) +
+  geom_qq_line(alpha = 0.5, size = 0.5, color = "blue") +
+  labs(title = "Q-Q Plot",
+       x ="Theoretical Quantiles",
+       y = "Standardized Residuals") + 
+  theme_classic() + 
+  theme(plot.title = element_text(hjust = 0.5, face="bold"),
+        plot.subtitle = element_text(hjust = 0.5))
+
+
+grid.arrange(p1, p2, ncol = 2)
+```
+
+
+**Question 4.2:** Estimate a binary logistic regression with `lfp`, which is a binary variable recoding the participation of the females in the sample, as the dependent variable. The set of explanatory variables includes `age`, `inc`, `wc`, `hc`, `lwg`, `totalKids`, and a quadratic term of `age`, called `age_squared`, where `totalKids` is the total number of children up to age $18$ and is equal to the sum of `k5` and `k618`.
+
+
+We define the binary logistic model:
+$$
+log(\frac{\pi}{1-\pi}) = \beta_0 + \beta_1 Age + \beta_2 Inc + \beta_3 WC + \beta_4 HC + \beta_5 LWG + \beta_6 totalKids + \beta_7 Age^2
+$$
+
+
+```{r results="asis"}
+Mroz$totalKids = Mroz$k5 + Mroz$k618
+Mroz$age_squared = Mroz$age^2
+mroz.glm <- glm(lfp ~ age + inc + wc + hc + lwg + totalKids + age_squared,
+                family = binomial, data = Mroz)
+
+# summarize model
+stargazer(mroz.lm, type="latex", summary=F,
+dep.var.labels = c("U.S Women's Labor-Force Participation"),
+title = "Binary Logistic Regression Model",
+header=F)
+```
+Based on the results, we get the estimated regression model 
+$$
+\begin{aligned}
+log(\frac{\pi}{1-\pi}) = -5.294073 + 0.318014Age - 0.034561 Inc + 0.666013 WC + \\
+0.09826 HC + 0.549976 LWG - 0.22249 totalKids + \beta_7 Age^2
+\end{aligned}
+$$
+
+**Question 4.3:** Is the age effect statistically significant? 
+From above result summary table, the variable age has a p-value of less than 0.05. Therefore, the age effect is statistically significant.
+
+**Question 4.4:** What is the effect of a decrease in age by $5$ years on the odds of labor force participation for a female who was $45$ years of age.
+
+We derived below OR formula
+$$
+OR = exp(c \beta_1 + c \beta_7(2 \times Age  + c))
+$$
+
+```{r}
+c = -5
+age = 45
+age_effect = exp(c*mroz.glm$coefficient["age"] + c*mroz.glm$coefficient["age_squared"]*(2*age+c))
+age_effect
+```
+The odds of a labour force participation for a 45 year-old married woman increase by 1.1716 times for a decrease in age by 5 years.
+
+**Question 4.5:** Estimate the profile likelihood confidence interval of the probability of labor force participation for females who were $40$ years old, had income equal to $20$, did not attend college, had log wage equal to 1, and did not have children.
+
+```{r}
+alpha = 0.05
+
+# create a function for generating profile likelihood CI on predicted probability
+mroz.CI.pi <- function(obj.glm, predict.data, alpha){
+  linear.pred <- predict(object=mroz.glm, newdata = predict.data, type = "link", se= TRUE)
+  pi.hat <- exp(linear.pred$fit)/(1+exp(linear.pred$fit))
+  CI.lin.pred <- linear.pred$fit + qnorm(p = c(alpha/2, 1-alpha/2))*linear.pred$se
+  CI.pi <- exp(CI.lin.pred)/(1+exp(CI.lin.pred))
+  data.frame(pi.hat=pi.hat, CI.pi.lower = CI.pi[1], CI.pi.upper = CI.pi[2])
+}
+
+# Calulcate the CI for females who were 40 years old, had income equal to 20, did not attend college, had log wage equal to 1, did not have children, and have husband who did not attend college
+mroz.predict.data1 <- data.frame(age = 40, inc = 20, wc ="no", hc = "no", 
+                                 lwg = 1, totalKids = 0, age_squared = 40^2)
+data.frame(mroz.predict.data1, mroz.CI.pi(obj.glm=mroz.glm, predict.data= mroz.predict.data1, alpha=alpha))
+```
+
+The profile likelihood CI of the probability of labor force participation is (0.5861286, 0.7422584) for females who were 40 years old, had income equal to 20, did not attend college, had log wage equal to 1, did not have children, and have husband who did not attend college
+
+```{r}
+# Use mcprofile() to do the calculation, but yield a different result
+K <- matrix(data=c(1, 40, 20, 0, 0, 1, 0, 1600), nrow = 1, ncol= 8)
+linear.combo <- mcprofile(object = mroz.glm, CM = K)
+confint(object = linear.combo, level = 1-alpha)
+```
+
+```{r}
+# Calulcate the CI for females who were 40 years old, had income equal to 20, did not attend college, had log wage equal to 1, did not have children, and have husband who attended college
+mroz.predict.data2 <- data.frame(age = 40, inc = 20, wc ="no", hc = "yes", 
+                                 lwg = 1, totalKids = 0, age_squared = 40^2)
+data.frame(mroz.predict.data2, mroz.CI.pi(obj.glm=mroz.glm, predict.data= mroz.predict.data2, alpha=alpha))
+```
+
+For females whose husbands did attend college (hc = "yes"), the profile likelihood CI of the probability of labor force participation is (0.5849864, 0.7788481)
+The results are very similar for hc = "no" and hc = "yes".
+
+```{r}
+# Use mcprofile() to do the calculation, but yield a different result
+K <- matrix(data=c(1, 40, 20, 0, 1, 1, 0, 1600), nrow = 1, ncol= 8)
+linear.combo <- mcprofile(object = mroz.glm, CM = K)
+confint(object = linear.combo, level = 1-alpha)
+```
+
+\newpage
+# 5: Maximum Likelihood (2 points)
+
+**Question 18 a and b of Chapter 3 (page 192,193)**
+
+For the wheat kernel data (*wheat.csv*), consider a model to estimate the kernel condition using the density explanatory variable as a linear term.
+
+**Question 5.1** Write an R function that computes the log-likelihood
+function for the multinomial regression model. Evaluate the function at the parameter estimates produced by multinom(), and verify that your computed value is the same as that produced by logLik() (use the object saved from multinom() within this function).
+$$
+\sum\limits_{i=1}^N healthy*log(pi_{healthy})
+$$
+```{r}
+wheat <- read.csv("wheat.csv")
+
+logL <- function(beta, x, Y){
+  # compute pi_1.hat (healthy)
+  pi_1 = (1+exp(x %*% beta[1:7]) + exp(x %*% beta[8:14]))^(-1)
+  
+  # compute pi_2.hat (scab)
+  pi_2 = exp(x %*% beta[1:7])*pi_1
+  
+  # compute pi_3.hat (sprout)
+  pi_3 = exp(x %*% beta[8:14])*pi_1
+  
+  # combine together to form a pi_hat matrix
+  pi_hat_mtx = cbind(pi_1, pi_2, pi_3)
+  
+  # compute log likelihood
+  sum(Y*log(pi_hat_mtx))
+}
+
+# Confirm healthy is the base category
+levels(wheat$type)
+
+fmla = as.formula("type ~ class + density + hardness + size + weight + moisture")
+
+# Create a matrix for all explanatory variables
+x <- as.matrix(model.matrix(fmla, data=wheat))
+
+wheat.mod <- multinom(formula = fmla, data = wheat)
+summary(wheat.mod)
+
+# Create a binary matrix for the response variable
+type.healthy = ifelse(test = wheat$type == "Healthy", yes = 1, no = 0)
+type.scab = ifelse(test = wheat$type == "Scab", yes = 1, no = 0)
+type.sprout = ifelse(test = wheat$type == "Sprout", yes = 1, no = 0)
+type.binary = cbind(type.healthy, type.scab, type.sprout)
+
+beta_hat = c(summary(wheat.mod)$coefficients[1,],
+             summary(wheat.mod)$coefficients[2,])
+
+logL(beta = beta_hat, x = x, Y = type.binary)
+
+# LogLik() verifies above computed value
+logLik(wheat.mod)
+```
+
+**Question 5.2** Maximize the log-likelihood function using optim() to obtain the MLEs and the estimated covariance matrix. Compare your answers to what is obtained by multinom(). Note that to obtain starting values for optim(), one approach is to estimate separate logistic regression models for $log \left( \frac{\pi_2}{\pi_1} \right)$ and $log \left( \frac{\pi_3}{\pi_1} \right)$. These models are estimated only for those observations that have the corresponding responses (e.g., a $Y = 1$ or $Y = 2$ for $log \left( \frac{\pi_2}{\pi_1} \right)$).
+
+```{r}
+
+# Create binary response variable for the two separate logistic regression models
+wheat$type.healthy_scab <- ifelse(test = wheat$type != "Sprout", yes = 1, no = 0)
+wheat$type.healthy_sprout <- ifelse(test = wheat$type != "Scab", yes = 1, no = 0)
+
+wheat.mod1 = glm(formula = type.healthy_scab ~ class + density + hardness + size + weight + moisture, data = wheat, family = binomial)
+wheat.mod2 = glm(formula = type.healthy_sprout ~ class + density + hardness + size + weight + moisture, data = wheat, family = binomial)
+
+# use the beta values from above logistic regression model as initial beta values
+beta.start = c(wheat.mod1$coefficients, wheat.mod2$coefficients)
+MLE = optim(beta.start, fn = logL, x = x, Y = type.binary, hessian = TRUE)
+MLE
+
+# the estimated covariance matrix
+vcov(wheat.mod)
+
+```

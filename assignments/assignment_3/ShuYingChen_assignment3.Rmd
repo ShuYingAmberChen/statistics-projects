@@ -1,0 +1,850 @@
+---
+title: "W271 Assignment 3"
+author: "Shu Ying (Amber) Chen"
+geometry: margin=1in
+output:
+  pdf_document: null
+  word_document: default
+  toc: yes
+  number_sections: yes
+subtitle: Due 11:59pm Pacific Time Sunday November 29 2020
+fontsize: 11pt
+---
+
+```{r setup, include = F}
+library(knitr)
+opts_chunk$set(tidy.opts=list(width.cutoff=60),tidy=TRUE)
+
+# Start with a clean R environment
+rm(list = ls())
+
+# Load libraries
+library(readr)
+library(lubridate)
+library(forecast)
+library(fable)
+library(fpp2)
+library(fpp3)
+library(dplyr)
+library(xts)
+library(stargazer)
+library(gridExtra)
+library(lmtest)
+library(vars)
+library(car)
+
+```
+
+## Instructions (Please Read Carefully):
+
+* No page limit, but be reasonable
+
+* Do not modify fontsize, margin or line_spacing settings
+
+* This assignment needs to be completed individually; this is not a group project. Each student needs to submit their homework to the course github repo by the deadline; submission and revisions made after the deadline will not be graded
+
+* Answers should clearly explain your reasoning; do not simply 'output dump' the results of code without explanation 
+
+* Submit two files:
+    
+    1. A pdf file that details your answers. Include all R code used to produce the answers. Do not suppress the codes in your pdf file
+    
+    2. The R markdown (Rmd) file used to produce the pdf file
+  
+    The assignment will not be graded unless **both** files are submitted
+      
+* Use the following file-naming convensation:
+    * StudentFirstNameLastName_HWNumber.fileExtension
+    * For example, if the student's name is Kyle Cartman for assignment 1, name your files follows:
+        * KyleCartman_assignment3.Rmd
+        * KyleCartman_assignment3.pdf
+            
+* Although it sounds obvious, please write your name on page 1 of your pdf and Rmd files
+
+* For statistical methods that we cover in this course, use the R libraries and functions that are covered in this course. If you use libraries and functions for statistical modeling that we have not covered, you must provide an explanation of why such libraries and functions are used and reference the library documentation. For data wrangling and data visualization, you are free to use other libraries, such as dplyr, ggplot2, etc.
+
+* For mathematical formulae, type them in your R markdown file. Do not e.g. write them on a piece of paper, snap a photo, and use the image file.
+
+* Incorrectly following submission instructions results in deduction of grades
+
+* Students are expected to act with regard to UC Berkeley Academic Integrity
+
+\newpage
+
+# Question 1 (2 points) 
+
+**Time Series Linear Model**
+
+The data set `Q1.csv` concerns the monthly sales figures of a shop which opened in January 1987 and sells gifts, souvenirs, and novelties. The shop is situated on the wharf at a beach resort town in Queensland, Australia. The sales volume varies with the seasonal population of tourists. There is a large influx of visitors to the town at Christmas and for the local surfing festival, held every March since 1988. Over time, the shop has expanded its premises, range of products, and staff.
+
+**a)** Produce a time plot of the data and describe the patterns in the graph. Identify any unusual or unexpected fluctuations in the time series.
+
+```{r 1Plot, fig.cap="Monthly store sales from 1987 to 1994", fig.width = 6, fig.height = 4, fig.fullwidth=T}
+# Load data
+df <- read.csv("Q1.csv") 
+sales.ts <- ts(as.numeric(df$sales), start = c(1987, 1), frequency = 12) %>% as_tsibble() %>% rename(sales = value)
+ggplot(sales.ts, aes(x = index, y = sales)) + geom_line() + ggtitle("Monthly Store Sales")
+```
+
+The data contains monthly sales figures from January 1987 to December 1993. Within each year the sales figure follows an increasing trend from January to December. The yearly pattern has a stable increase trend from January to November, and has a significant spike in December. Looking at the trend from January to November, we can see the increasing trend steepens year over year. The year-over-year (YoY) figures appear to be an increasing trend for each month, especially December figures seem to be increasing in an exponential trend rather than in a linear trend. 
+
+Below two seasonal plots provide a clear picture of YoY increasing trend of each month. The left plot shows that all months have an exponential pattern. The right plot shows that the mean of each month over time does not appear to be different significantly from January to October, but the mean for November and December shows a significant difference from other months.
+
+```{r 1seasPlot, fig.cap="Seasonal plots for monthly sales figures from 1987 to 1994", fig.width = 16, fig.height = 6, fig.fullwidth=T}
+p1 <- sales.ts %>%
+  gg_season(sales) +
+  ylab("Sales") + xlab('Month') +
+  ggtitle("Seasonal plot: Store Sales")
+
+p2 <- sales.ts %>% 
+  gg_subseries(sales) +
+  ylab("Sales") + xlab('Month') +
+  ggtitle("Seasonal subseries plot: Store Sales")
+
+grid.arrange(p1, p2, ncol=2)
+```
+
+**b)** Explain why it is necessary to take logarithms of these data before fitting a model.
+
+From Fig 1 and 2, we observe an exponential increasing trend for both year over year and month over month within each year. This means that the variance of sales is not constant over time. We can see the seasonal component from the additive decompositiion (Fig. 3) increases over time and the irregular component possesses a similar pattern each year. On the other side, the multiplicative decomposition has a more stable variance and a more random irregular component. Hence, we determine that logarithmic transformation is needed to stablize the variance.
+
+```{r 1decomp, fig.cap="Additive and multiplicative decomposition of the sales data", fig.width = 16, fig.height = 6, fig.fullwidth=T}
+# Compare additive and multiplicative decompositions
+p1 <- sales.ts %>% model(x11 = feasts:::X11(sales, type = "additive")) %>% components() %>% autoplot()
+p2 <- sales.ts %>% model(x11 = feasts:::X11(sales, type = "multiplicative")) %>% components() %>% autoplot()
+grid.arrange(p1, p2, ncol=2)
+```
+
+
+```{r 1logDecomp, fig.cap="Logarithmic transformation of the sales data and its additive decomposition", fig.width = 16, fig.height = 6, fig.fullwidth=T}
+p1 <- ggplot(sales.ts, aes(x = index, y = log(sales))) + geom_line() + ggtitle("Log Monthly Store Sales")
+p2 <- sales.ts %>% model(x11 = feasts:::X11(log(sales), type = "additive")) %>% components() %>% autoplot()
+grid.arrange(p1, p2, ncol=2)
+```
+
+After taking log of the time series, the variance becomes more stable year over year and the trend in the irregular component is removed.
+
+**c)** Use R to fit a regression model to the logarithms of these sales data with a linear trend, seasonal dummies and a "surfing festival" dummy variable.
+
+We define the regression model as follows:
+
+$$
+log(sales) = \beta_0 + \beta_1trend + \beta_2season_2 +...+ \beta_{12}season_{12} + \beta_{13}SurfingFestival
+$$
+,where $SurfingFestival = 1$ if $month = March$ and $year > 1987$, or $0$ if otherwise
+
+```{r}
+sales.ts <- sales.ts %>% mutate(surfing_festival = ifelse(month(index) == 3, 1, 0))
+sales.ts$surfing_festival[3] = 0
+
+sales.seasonal.lm <- sales.ts %>% model(TSLM(log(sales) ~ trend() + season() + surfing_festival))
+report(sales.seasonal.lm)
+```
+The model has a high adjusted $R^2$ of 0.9487. Though most of the coefficients are statistically significant, the one for March seasonal variable is not, probably due to the inclusion of surfing_festival, which captures the small surge in sales every March except the first year.
+
+**d)** Plot the residuals against time and against the fitted values. Do these plots reveal any problems with the model?
+
+```{r}
+# Plot residuals against time
+augment(sales.seasonal.lm) %>%
+  ggplot(aes(x = index, y = .resid)) +
+    geom_point() +
+    ylab("Residuals") + xlab("Time") +
+    ggtitle("Residuals: Monthly Store Sales")
+
+# Plot residuals against the fitted values
+augment(sales.seasonal.lm) %>%
+  ggplot(aes(x = .fitted, y = .resid,
+             colour = factor(quarter(index)))) +
+    geom_point() +
+    ylab("Residuals") + xlab("Fitted values") +
+    ggtitle("Monthly Store Sales") +
+    scale_colour_brewer(palette="Dark2", name="Quarter")
+```
+
+The two plots reveal two problems:
+
+1. The variance of the residuals increase as time progresses, so the residual term is not homoscedastic;
+
+2. The residual term incorporates some seasonal sales trend. The residuals of the 4th quarter data are the most significant amongst all quarters, whereas the residuals of the 1st and 2nd quarters are close to 0.
+
+
+**e)** Do boxplots of the residuals for each month. Does this reveal any problems with the model?
+
+```{r}
+logsales <- ts(log(sales.ts$sales), frequency = 12, start = c(1987,1))
+surfing_festival <- ts(as.numeric(sales.ts$surfing_festival), frequency = 12, start = c(1987,1))
+sales.df <- data.frame(logsales, surfing_festival)
+fitmod <- tslm(logsales ~ trend + season + surfing_festival, data = sales.df)
+boxplot(resid(fitmod) ~ cycle(resid(fitmod)), main="Residual Boxplot by Month")
+```
+We can see the residuals drift up and down throughout the year, especially from August to December. The residuals stay closer to 0 in April, June and July while spreading out more during August to October. 
+
+
+**f)** What do the values of the coefficients tell you about each variable?
+
+The positive coefficient of trend() tells us an increasing sales trend from 1987 to 1994. The coefficient of surfing festival is statistically significant and captures the positive surge in March sales for all years except the first year. January sales figures are modeled using the intercept, The coefficients of all seasonal variables are positive, indicating that sales of all months are greater than January sales figures and especially November and December have significant increases in sales.
+
+
+**g)** What does the Breusch-Godfrey test tell you about your model?
+
+```{r}
+bgtest(fitmod)
+```
+The Breusch-Godfrey test result suggest to reject null hypothesis of that there is no serial correlation of order 1 in residuals. Hence the model is not a good fit as some seasonal factor is remained in the residual term.
+
+**h)** Regardless of your answers to the above questions, use your regression model to predict the monthly sales for 1994, 1995, and 1996. Produce prediction intervals for each of your forecasts.
+
+
+```{r}
+# create a surfing festival variable for the forecast period. It is 1 for every March and 0 if otherwise.
+fore.surf_fest <- rep(0, 36)
+fore.surf_fest[seq_along(fore.surf_fest)%%12 == 3] = 1
+
+sales_pred <- forecast(fitmod, newdata = data.frame(surfing_festival = fore.surf_fest))
+sales_pred
+```
+**i)** Transform your predictions and intervals to obtain predictions and intervals for the raw data.
+
+```{r}
+exp(as.data.frame(sales_pred))
+```
+
+**j)** How could you improve these predictions by modifying the model?
+
+To improve the predictions, we can apply an ARIMA model to better capture seasonality within the time series.
+
+\newpage
+
+# Question 2 (2 points)
+
+**Cross-validation**
+
+This question is based on section 5.9 of *Forecasting: Principles and Practice Third Edition* (Hyndman and Athanasopoulos). 
+
+The `gafa_stock` data set from the `tsibbledata` package contains historical stock price data for Google, Amazon, Facebook and Apple.
+
+The following code fits the following models to a 2015 training set of Google stock prices: 
+
+* `MEAN()`: the *average method*, forecasting all future values to be equal to the mean of the historical data
+
+* `NAIVE()`: the *naive method*, forecasting all future values to be equal to the value of the latest observation  
+
+* `RW()`: the *drift method*, forecasting all future values to continue following the average rate of change between the last and first observations. This is equivalent to forecasting using a model of a random walk with drift.
+
+```{r  message=FALSE}
+# Re-index based on trading days
+google_stock <- gafa_stock %>%
+  filter(Symbol == "GOOG") %>%
+  mutate(day = row_number()) %>%
+  update_tsibble(index = day, regular = TRUE)
+
+# Filter the year of interest
+google_2015 <- google_stock %>% filter(year(Date) == 2015)
+
+# Fit models
+google_fit <- google_2015 %>%
+  model(
+    Mean = MEAN(Close),
+    `Naïve` = NAIVE(Close),
+    Drift = RW(Close ~ drift())
+  )
+```
+
+The following creates a test set of January 2016 stock prices, and plots this against the forecasts from the average, naive and drift models:
+
+```{r message=FALSE}
+google_jan_2016 <- google_stock %>%
+  filter(yearmonth(Date) == yearmonth("2016 Jan"))
+google_fc <- google_fit %>% forecast(google_jan_2016)
+
+# Plot the forecasts
+google_fc %>%
+  autoplot(google_2015, level = NULL) +
+    autolayer(google_jan_2016, Close, color='black') +
+    ggtitle("Google stock (daily ending 31 Dec 2015)") +
+    xlab("Day") + ylab("Closing Price (US$)") +
+    guides(colour=guide_legend(title="Forecast"))
+```
+
+Forecasting performance can be measured with the `accuracy()` function:
+
+```{r message=FALSE}
+accuracy(google_fc, google_stock)
+```
+
+These measures compare model performance over the entire test set. An alternative version of pseudo-out-of-sample forecasting is *time series cross-validation*.
+
+In this procedure, there may be a series of 'test sets', each consisting of one observation and corresponding to a 'training set' consisting of the prior observations. 
+
+```{r message=FALSE}
+# Time series cross-validation accuracy
+google_2015_tr <- google_2015 %>%
+  slice(1:(n()-1)) %>%
+  stretch_tsibble(.init = 3, .step = 1)
+
+fc <- google_2015_tr %>%
+  model(RW(Close ~ drift())) %>%
+  forecast(h=1)
+
+fc %>% accuracy(google_2015)
+```
+
+**a)** Define the accuracy measures returned by the `accuracy` function. Explain how the given code calculates these measures using cross-validation. 
+
+RMSE is calculated as the square root of mean of squared errors. The forecast method that minimizes the RMSE will lead to forecasts of the mean. 
+
+MAE is calculated as the mean of absolute of error term. The forecast method that minimizes the MAE will lead to forecasts of the median.
+
+MPE is defined as the mean of percentage error. Since the measure is in percentage, it is unit free and can be used to compare forecast performances between data sets.
+
+MAPE is defined as the mean of absolute percentage error. 
+
+MASE is decided as the mean of absolute scaled error. It is scaled using MAE of the training set naive forecasts for non-seasonal time series - the Google stock price.
+
+ACF1 is the autocorrelation of errors at lag 1.
+
+The cross-validation procedure produces 4-step-ahead forecast and evaluates forecasts on a rolling forecast basis. The entire year 2015 dataset is splitted into N - 3 training sets and all observations except the first three for the test set. All of the accuracy measures are smaller using cross-validation because of the following two reasons:
+
+- this method trains and validates the model on the same dataset whereas the first method trains year 2015 data and forecast out to January 2016.
+
+- The accuracy measures from cross-validation method are calculated as the average of accuracy in each training set. Since the size of each slice is small relative to the number of training set slices and the data points within each slice are consecutive, the variance of the error term is small and can be improved over the runs. 
+
+
+**b)** Obtain Facebook stock data from the `gafa_stock` dataset. 
+
+```{r}
+facebook_stock <- gafa_stock %>%
+  filter(Symbol == "FB") %>%
+  mutate(day = row_number()) %>%
+  update_tsibble(index = day, regular = TRUE)
+```
+
+Use cross-validation to compare the RMSE forecasting accuracy of naive and drift models for the *Volume* series, as the forecast horizon is allowed to vary.
+
+```{r}
+# Filter the year of interest
+facebook_2015 <- facebook_stock %>% filter(year(Date) == 2015)
+
+# Time series cross-validation accuracy
+facebook_2015_tr <- facebook_2015 %>%
+  slice(1:(n()-1)) %>%
+  stretch_tsibble(.init = 3, .step = 1)
+
+fb_fc <- facebook_2015_tr %>%
+  model(`Naïve` = NAIVE(Volume), 
+        Drift = RW(Volume ~ drift())) %>%
+  forecast(h=1)
+
+fb_fc %>% accuracy(facebook_2015)
+```
+
+By comparing the RMSE forecasing accuracy of both models, we found that the naive model is a better model than the drift model to predict the volume of Facebook stocks.
+
+\newpage
+
+
+# Question 3 (2 points): 
+
+**ARIMA model** 
+
+Consider `fma::sheep`, the sheep population of England and Wales from 1867–1939.
+
+```{r message=FALSE}
+#install.packages('fma')
+library(fma)
+head(fma::sheep)
+```
+
+**a)** Produce a time plot of the time series.
+
+```{r}
+# the original ts object ended in 1872. It seems that the frequency is not set up properly
+# convert to tsibble and fix the frequency 
+sheep_tsibble <- ts(as.numeric(fma::sheep), start = c(1867, 1), frequency = 1) %>% as_tsibble()
+ggplot(sheep_tsibble, aes(x = index, y = value)) + geom_line() + ggtitle("Sheep Population of Engliand and Wales")
+
+```
+
+From the time plot, we can see the sheep population has a general decreasing trend from 1867 to 1940 with some seasonality. The population dipped to the lowest in year 1920 and then bounced back.
+
+**b)** Assume you decide to fit the following model: 
+$$y_t=y_{t-1}+\phi_1(y_{t-1}-y_{t-2})+\phi_2(y_{t-2}-y_{t-3})+\phi_3(y_{t-3}-y_{t-4})+\epsilon_t$$
+where $\epsilon_t$ is a white noise series. 
+
+What sort of ARIMA model is this (i.e., what are p, d, and q)?
+
+Express this ARIMA model using backshift operator notation.
+
+The ARIMA model has one degree of first-differencing and autoregressive at lag 3. The model is pdq(3,1,0) with no seasonal component.
+
+The model can be expressed as follows using backshift operator:
+
+$$
+(1 - \phi_1B - \phi_2B^2 - \phi_3B^3)(1-B)y_t = \epsilon_t
+$$
+
+**c)** By examining the ACF and PACF of the differenced data, explain why this model is appropriate.
+
+```{r}
+# Apply first order differencing
+sheep_tsibble <- sheep_tsibble %>% mutate(d_value = difference(value, 1))
+sheep_tsibble %>% gg_tsdisplay(y = d_value, plot = 'partial', lag_max = 32)
+```
+
+After the first-differencing is applied, the time series has a stable mean around 0. Its acf tails off after lag 3 and pacf cuts off sharply after lag 3, indicating AR of lag 3 while not showing a MA characteristics. Hence the model pdq(3,1,0) is appropriate.
+
+**d)** The last five values of the series are given below:
+
+|Year              | 1935| 1936| 1937| 1938| 1939|
+|:-----------------|----:|----:|----:|----:|----:|
+|Millions of sheep | 1648| 1665| 1627| 1791| 1797|
+
+
+The estimated parameters are $\phi_1=0.42$, 
+$\phi_2=-0.20$, and $\phi_3=-0.30$.
+
+Without using the forecast function, calculate forecasts for the next three years (1940–1942).
+
+```{r}
+# extract the last five values from the time series
+last5_fc = sheep_tsibble %>% filter(index >= 1935)
+
+# a vector of phi's
+phi = cbind(0.42, -0.2, -0.3)
+
+n = last5_fc$index
+y = last5_fc$value
+
+# calculates the next 3-year's values using the formula provided in question (b)
+for (i in 1:3){
+  len = length(n)
+  n = c(n, n[len]+1)
+  y = c(y, round(y[len] + phi[1]*(y[len] - y[len-1]) + phi[2]*(y[len-1] - y[len-2]) + phi[3]*(y[len-2] - y[len-3]) + rnorm(1)))
+}
+
+sheep_3yr_fc <- tibble(index = year(as.Date(as.character(tail(n, 3)), format="%Y")), value = tail(y, 3)) %>% as_tsibble(index = index)
+sheep_3yr_fc
+```
+
+**e)** Find the roots of your model's characteristic equation and explain their significance. 
+
+Rearranging the characteristic equation to 
+$$
+(1 - (\phi_1 + 1)B + (\phi_1-\phi_2)B^2 + (\phi_2-\phi_3)B^3 + \phi_3B^4)y_t = \epsilon_t
+$$
+
+
+```{r}
+
+Mod(polyroot(c(1, -(phi[1] + 1), (phi[1] - phi[2]), (phi[2]-phi[3]), phi[3])))
+```
+The model is non-stationary due to the presence of one unit root, though all other roots exceed unity in absolute value. 
+
+\newpage
+
+
+# Question 4 (2 points): 
+
+**Model averaging**
+
+The `HoltWinters()` function from the base R `stats` package computes a Holt-Winters Filtering of a time series. This is a classical form of exponential smoothing model, an approach to time series modeling that predates Box and Jenkins' ARIMA methodology. Exponential smoothing models are categorized by error, trend and seasonal components, which if present may be additive or multiplicative. Detail is given in the (optional) readings from Cowpertwait and Metcalfe (Chapter 3.4) and Hyndman and Athanasopoulos (Chapter 8.3).
+
+The Holt-Winters method (in additive and multiplicative variants) can also be applied using the `ETS()` function from the `fable` package, as per the following example:
+
+```{r message=FALSE}
+aus_holidays <- tourism %>%
+  filter(Purpose == "Holiday") %>%
+  summarise(Trips = sum(Trips))
+
+# using ETS() function from fable
+fit <- aus_holidays %>%
+  model(
+    additive = ETS(Trips ~ error("A") + trend("A") + season("A")),
+    multiplicative = ETS(Trips ~ error("M") + trend("A") + season("M"))
+  )
+fc <- fit %>% forecast(h = "3 years")
+
+fc %>%
+  autoplot(aus_holidays, level = NULL) + xlab("Year") +
+  ylab("Overnight trips (millions)") +
+  scale_color_brewer(type = "qual", palette = "Dark2")
+```
+
+Apply a Holt-Winters model to the ECOMPCTNSA time series data recorded in `Q4.csv` (these are the same Federal Reserve Economic Database data from the Week 9 Live Session). Compare this model's forecasting performance to that of a seasonal ARIMA model using cross-validation. Then compare both of these models to the performance of a simple average of the ARIMA and Holt-Winters models.
+
+```{r}
+# Load data
+ecom <- read.csv("Q4.csv") %>% 
+  mutate(DATE = dmy(DATE)) %>% 
+  as_tsibble(index = 'DATE') %>% 
+  mutate(DATE = yearquarter(DATE)) %>% 
+  rename(date = DATE, value = ECOMPCTNSA)
+
+# Inspect data
+str(ecom)
+head(ecom)
+tail(ecom)
+
+#Aggregate statistics
+summary(ecom$value) 
+
+# Time series plot, autocorrelation and partial autocorrelation function
+
+ecom %>% gg_tsdisplay(y = value, plot = 'partial', lag_max = 32)
+```
+
+The time series has an upward trend with quarterly seasonal pattern, and this seasonality cycle does not seem to be consistent, but increasing through the period. Autocorrelation decays slowly while partial autocorrelation cuts off after lag 1 and have some spikes at seasonal lags.
+
+We define and compare three models using the Holt-Winters method:
+
+Additive: ETS(A, A, A) - All three components are additive
+
+Mutli_seas: ETS(A, A, M) - The seasonal component is multiplicative while other compenents remain additive
+
+Multiplicative: ETS(M, A, M) - The error and seasonal components are multiplicative while the trend compenent remains additive
+
+```{r}
+# using ETS() function from fable
+ecom_fit1 <- ecom %>%
+  model(
+    additive = ETS(value ~ error("A") + trend("A") + season("A")),
+    Multi_seas = ETS(value ~ error("A") + trend("A") + season("M")),
+    multiplicative = ETS(value ~ error("M") + trend("A") + season("M"))
+  )
+ecom_fc1 <- ecom_fit1 %>% forecast(h = "3 years")
+
+ecom_fc1 %>%
+  autoplot(ecom, level = NULL) + xlab("Year") +
+  ylab("E-Commerce Retail Sales ") +
+  scale_color_brewer(type = "qual", palette = "Dark2")
+
+ecom_fit1 %>% accuracy()
+```
+
+All three models predict very similar values for next 3 years, and their accuracy measures are also similar. We can see the "Multi_seas" model performs slightly better than the other two since it has 6 out of 7 measures better than the "addtive" model and 5 out of 7 measures better than the "multiplicative" model. Therefore, we select the "Multi_seas" model for further comparison with ARIMA model.
+
+Following the live session exercise, I determine that a log or box-cox transformation is needed to stablize the variance, and the two methods are very similar in this case. Hence, we apply box-cox transformation and then apply first and seasonal differencing. We also filter the anomalous period prior to 2003 for only regular seasonal data.
+
+```{r}
+lambda <- ecom %>% features(value, features = guerrero) %>% pull(lambda_guerrero)
+ecom <- ecom %>% mutate(value_bc = box_cox(value, lambda = lambda))
+ecom %>% autoplot(log(value), color = 'pink') + autolayer(ecom, value_bc) + ggtitle('Transformed e-commerce series')
+ecom %>% model(x11 = feasts:::X11(value_bc, type = "additive")) %>% components() %>% autoplot()
+```
+
+```{r}
+ecom <- ecom %>% mutate(d_sd_value = difference(difference(value_bc, 4)))
+ecom %>% gg_tsdisplay(y = d_sd_value, plot = 'partial', lag_max = 32)
+
+ecom03 <- ecom %>% filter_index('2003 Q1'~.) 
+ecom03 %>% gg_tsdisplay(y = d_sd_value, plot = 'partial', lag_max = 32)
+ecom03$d_sd_value %>% gghistogram()
+```
+The correlograms of the first and seasonal-differenced series show significant spikes in ACF and PACF at lag 4, potentially suggesting a seasonal MA(1) and/or AR(1) component. There may be other components but let's first compare an $ARIMA(0,1,0)(0,1,1)_4$, an $ARIMA(0,1,0)(1,1,0)_4$ and an $ARIMA(0,1,0)(1,1,1)_4$, using in-sample and pseudo-out-of-sample accuracy comparisons.
+
+We split the data into training and test sets, taking the final two years as a test set period for pseudo-out-of-sample forecasting performance.
+
+```{r}
+ecom.training <- ecom03 %>% filter_index(~'2017 Q4') 
+ecom.test <- ecom03 %>% filter_index('2018 Q1'~.)
+```
+
+
+```{r, warning = FALSE}
+results <- data.frame(p=integer(),
+                      q=integer(),
+                      P=integer(),
+                      Q=integer(),
+                      AICc=double())
+for (p in 0:4){
+  for (q in 0:4){
+    for(P in 0:4){
+      for (Q in 0:4){
+        tryCatch(
+          {
+            mod <- ecom.training %>% model(ARIMA(box_cox(value, lambda = lambda) ~ 0 +
+                                                         pdq(p,1,q) + PDQ(P,1,Q)))
+
+            if(has_name(glance(mod),'AICc')){
+          }
+        results <- results %>% add_row(p=p, q = q, P=P, Q=Q, AICc = as.numeric(glance(mod)$AICc))
+#         print(paste(p, q, P, Q, as.numeric(glance(mod)$AICc)))
+          },
+        error=function(e) {
+#           print(paste('error encountered for', p, q, P, Q))
+          }
+        )
+      }
+    }
+  }
+}
+results[which.min(results$AICc), ]
+```
+
+Though we found the model with the lowest AICc is $ARIMA(0,1,1)(0,1,1)_4$ through loop from lag 0 to 4 for each of p, q, P, and Q, we should still compare the accuracy measures of the model against the other two models we proposed.
+
+```{r}
+models <- ecom.training %>% model(mod1 = ARIMA(box_cox(value, lambda = lambda) ~ pdq(0,1,0) + 
+                                                 PDQ(0,1,1, period=4)),
+                                  mod2 = ARIMA(box_cox(value, lambda = lambda) ~ pdq(0,1,0) + 
+                                                 PDQ(1,1,0, period = 4)),
+                                  mod3 = ARIMA(box_cox(value, lambda = lambda) ~ pdq(0,1,0) + 
+                                                 PDQ(1,1,1, period = 4)),
+                                  mod4 = ARIMA(box_cox(value, lambda = lambda) ~ pdq(0,1,1) + 
+                                                 PDQ(0,1,1, period = 4)))
+models %>% dplyr::select(mod1) %>% report()
+models %>% dplyr::select(mod2) %>% report()
+models %>% dplyr::select(mod3) %>% report()
+models %>% dplyr::select(mod4) %>% report()
+
+# The `glance()` function applied to a set of ARIMA models shows the variance of residuals (sigma2), the log-likelihood (log_lik), information criterion (AIC, AICc, BIC) and the characteristic roots (ar_roots and ma_roots).
+
+glance(models)
+
+# Inverse roots all lie within the unit circle
+gg_arma(models)
+
+models %>% accuracy()
+```
+
+We found that the third model $ARIMA(0,1,0)(1,1,1)_4$ has a lower AICc and BIC. All four models have their roots within unit circle and have similar AICc, BIC and accuracy measures. The fourth model has a marginally better RMSE, MAE, MAPE, MASE and ACF1. Hence we proceed to forecast using the fourth model. 
+```{r}
+ecom_fit2 <- models %>% dplyr::select(mod4)
+ecom_fc2 <- ecom_fit2 %>% forecast(h = "3 years")
+ecom_fc2 %>% autoplot(ecom.training) + ggtitle('E-commerce two-year ahead forecasts')
+```
+We assess Pseudo-out-of-sample performance by applying the accuracy function to the test set.
+
+```{r}
+ecom_fc2 %>% accuracy(ecom.test) 
+```
+
+Now we create the third model using a simple average of the selected ARIMA model and Holt-Winters model.
+```{r}
+ecom_fit <- ecom %>% 
+  model(fit1 = ETS(value ~ error("A") + trend("A") + season("M")),
+        fit2 = ARIMA(box_cox(value, lambda = lambda) ~ pdq(0,1,0) + PDQ(1,1,1, period = 4))) %>%
+  mutate(fit3 = (fit1 + fit2)/2)
+
+ecom_fit %>% accuracy()
+ecom_fc <- ecom_fit %>% forecast(h = "3 years")
+ecom_fc %>%
+  autoplot(ecom, level = NULL) + xlab("Year") +
+  ylab("E-Commerce Retail Sales - Three Models") +
+  scale_color_brewer(type = "qual", palette = "Dark2")
+```
+
+First we compare the forecasting performance between the Holt-Winters model (fit1) and the ARIMA model (fit2). The two models have similar accuracy measures and forecast values. Some accuracy measures of the two models are in different directions. the ARIMA model has negative ME, MPE and ACF1 whereas the Holt-Winters model has positive values of these measures. In absolute value term, the Holt-Winters model has 5 out of 7 accuracy measures better than the ARIMA model. 
+
+The forecast values from the third model (fit3) are the average of the first two models. The model's accuracy measures are not neccessarily the average of those of the first two models. Its RMSE, MAE, MAPE, MASE and ACF1 in absolute values are smaller than those of the first two models. In addition, its ME, MPE and ACF1 are close to the average of those of the first two models since ME, MPE and ACF1 of the first models are in different directions and somewhat offset each other.
+
+Therefore, the average model (fit3) is the best model.
+
+
+\newpage
+
+# Question 5 (2 points): 
+
+**Vector autoregression**
+
+Annual values for real mortgage credit (RMC), real consumer credit (RCC) and real disposable personal income (RDPI) for the period 1946-2006 are recorded in `Q5.csv`. All of the observations are measured in billions of dollars, after adjustment by the Consumer Price Index (CPI). Conduct an EDA on these data and develop a VAR model for the period 1946-2003. Forecast the last three years, 2004-2006, conducting residual diagnostics. Examine the relative advantages of logarithmic transformations and the use of differences.
+
+```{r}
+args(VAR)
+```
+
+```{r}
+args(VARselect)
+```
+```{r}
+# Load data
+econ <- read.csv("Q5.csv")
+econ <- ts(econ[,2:4], start=c(1946,1), end=c(2006,1),frequency = 1) 
+
+# Inspect data
+str(econ)
+head(econ)
+tail(econ)
+
+#Aggregate statistics
+summary(econ) 
+# No missing data
+
+```
+Since the data is alredy "cleaned" and is stored in a time series object, we can proceed to EDA
+
+The data contains three annual macroeconomic times series, real mortgage credit (RMC), real consumer credit (RCC) and real disposable personal income (RDPI), for the period 1946-2006. 
+All three times series have a similar upward trend, but RDPI has a more linear trend whereas RCC and RMC have a more exponential trend.
+
+```{r}
+plot.ts(econ, main="3 Macro Economics Time Series")
+
+tsplot <- function(series) {
+  autoplot(series)
+}
+for (k in 1:ncol(econ)) {
+  tsplot(econ[,k])
+}
+```
+
+Figure 5 shows that the three time series have almost perfect postive correlation with each other. 
+
+Looking at Figures 6 - 8, we observed that the three time series share similar characteristics of the histogram, ACF and PACF. Each time series is concentrated on the left side and does not follow a Normal distribution. The ACF gradually drops and becomes insignificant after lag 10 while the PACF sharply cuts off after lag 1.
+
+Figures 9 - 11 show that the three cross-correlograms have a mountain shape with peak at lag 0. These indicate that the most dominant cross correlations amongst the three variables occurs at lag 0.
+
+```{r 5conCorr, fig.cap="Contemporaneous correlation of the macroeconomic time series"}
+# Scatterplot Matrix, which displays the contemporaneous correlation
+scatterplotMatrix(~econ[,1]+econ[,2]+econ[,3]);
+  title("Contemporaneous Correlation of the 3 Macroeconomic Series ")
+```
+
+```{r 5tsplot, fig.cap="Time series plot, ACF and PACF of each of the macroeconomic time series"}
+# Time series plot, ACF and PACF of each of the individual series
+
+tsplot <- function(series, title) {
+  par(mfrow=c(2,2)) 
+  hist(series, main=""); title(title)
+  plot.ts(series, main=""); title(title)
+  acf(series, main=""); title(paste("ACF",title))  
+  pacf(series, main=""); title(paste("PACF",title))    
+}
+tsplot(econ[,1], "Real Mortage Credit")
+tsplot(econ[,2], "Real Consumer Credit")
+tsplot(econ[,3], "Real Disposable Personal Income")
+
+```
+```{r 5crossCorr, fig.cap="Correlation and Cross-correlation"}
+# Correlation and Cross-correlation
+par(mfrow=c(1,1))
+
+corrfunc <- function(series1, series2) {
+  cat("Correlation Matrix: ", cor(series1, series2))
+  ccf(series1,series2) 
+}
+
+for (i in 1:3) {
+  for (j in 1:3) {
+    if (i != j & j > i) {
+    corrfunc(econ[,i],econ[,j])
+    }
+  }
+}
+
+```
+
+```{r}
+# Split the data into training and test sets
+econ.training <- window(econ, start = c(1946,1), end = c(2003,1))
+econ.test <- window(econ, start = c(2004,1), end = c(2006,1))
+```
+
+## Select optimal number of lags
+```{r}
+VARselect(diff(econ.training), lag.max = 8, type = "both")
+```
+
+Based on SC, we select VAR(1) to be the best model.
+
+```{r}
+econ.fit1 <- VAR(diff(econ.training), p = 1, type = "both")
+summary(econ.fit1)
+names(econ.fit1)
+```
+
+```{r,fig.width = 8, fig.height = 8, fig.fullwidth=T}
+par(mar = rep(2,4))
+plot(econ.fit1)
+```
+```{r}
+roots(econ.fit1)
+```
+The fitted values are fairly close to the actual values but somewhat lag behind the actual values by about 1 year. All roots of the model are within unity. The ACF and PACF do not present significance after log 0. However, we can see the residuals are not stable from the above residual plot vs time. the residual variance increases as time passes. This indicates that the use of difference on the macroeconomic data can not stablize the residual variance.
+
+## Select optimal number of lags for the log-transformed data
+```{r}
+VARselect(log(econ.training), lag.max = 8, type = "both")
+```
+
+Based on SC, we select VAR(2) to be the best model for the log-transformed data.
+```{r,fig.width = 8, fig.height = 8, fig.fullwidth=T}
+econ.fit2 <- VAR(log(econ.training), p = 2, type = "both")
+summary(econ.fit2)
+names(econ.fit2)
+
+plot(econ.fit2)
+```
+```{r}
+roots(econ.fit2)
+```
+
+The fitted values from this model are closer to the actual values than the values provided by the previous model using the original data. All roots of the model are within unity. The ACF and PACF do not present significance after log 0. We can see the residual variance is now stable across time period and homoscedasticity presents. This indicated the model is a better fit than the first model because the log transformation can stablize the residual variance whereas the use of difference cannot.
+
+# Diagnostic Testing for model 1
+```{r}
+# Test of normality:
+econ.fit1.norm <- normality.test(econ.fit1, multivariate.only = TRUE)
+names(econ.fit1.norm)
+econ.fit1.norm
+
+# Test of no serial correlation:
+econ.fit1.ptasy <- serial.test(econ.fit1, lags.pt = 12, type = "PT.asymptotic")
+econ.fit1.ptasy
+#plot(econ.fit1.ptasy)
+
+# Test of the absence of ARCH effect:
+econ.fit1.arch <- arch.test(econ.fit1)
+names(econ.fit1.arch)
+econ.fit1.arch
+```
+
+Forecast by model 1
+```{r}
+econ_fc1 <- forecast(econ.fit1, h = 3) 
+econ_fc1 %>% autoplot() + autolayer(diff(econ.test)) + xlab("Date")
+```
+
+From the results of the diagnostic testing for model 1, we know that:
+
+- JB test: we can conclude that the data are not from a normal distribution as the null hypothesis is rejected. The skewness being zero is not rejected as the p-value is large, but the excess kurtosis being zero is rejected.
+
+- Portmanteau test: The null hypothesis is not rejected that no residual autocorrelations.
+
+- ARCH test: the null hypothesis is not rejected and thus the multivariate time series is homoscedastic.
+
+The forecast values are quite far away from the actual values and do not even present a same trend as the actual values.
+
+# Diagnostic Testing for model 2
+```{r}
+# Test of normality:
+econ.fit2.norm <- normality.test(econ.fit2, multivariate.only = TRUE)
+names(econ.fit2.norm)
+econ.fit2.norm
+
+# Test of no serial correlation:
+econ.fit2.ptasy <- serial.test(econ.fit2, lags.pt = 12, type = "PT.asymptotic")
+econ.fit2.ptasy
+#plot(econ.fit1.ptasy)
+
+# Test of the absence of ARCH effect:
+econ.fit2.arch <- arch.test(econ.fit2)
+names(econ.fit2.arch)
+econ.fit2.arch
+```
+
+Forecast by model 2
+```{r}
+econ_fc2 <- forecast(econ.fit2, h = 3) 
+econ_fc2 %>% autoplot() + autolayer(log(econ.test)) + xlab("Date")
+```
+
+From the results of the diagnostic testing for model 2, we know that:
+
+- JB test: the null hypothesis is not rejected that the data are from a normal distribution. The skewness being zero is not rejected and the excess kurtosis being zero is not rejected as the p-value is large.
+
+- Portmanteau test: The null hypothesis is not rejected that no residual autocorrelations, and thus the residuals are homoscedastic.
+
+- ARCH test: the null hypothesis is not rejected and thus the multivariate time series is homoscedastic.
+
+Unlike the first model which uses differenced values, the second model forecasts log-transformed values extremely close to actual logged values. 
