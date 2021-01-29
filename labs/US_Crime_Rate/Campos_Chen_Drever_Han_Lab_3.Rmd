@@ -1,0 +1,1518 @@
+---
+title: "Goup 2 Lab 3"
+author: "Campos, Chen, Drever, Han"
+date: "3/27/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.height = 2.7, fig.width = 6, warning = FALSE)
+#load packages
+library(car)
+#library(formatR)
+library(cowplot)
+library(ggplot2)
+library(reshape2)
+library(corrplot)
+# library(kableExtra)
+library(lmtest)
+library(effects)
+#library(stargazer)
+library(tidyverse)
+# library(psych)
+# library(pastecs)
+# library(grDevices)
+#library(EnvStats)
+#library(MASS)
+#library(ggstatsplot)
+#library(plotrix)
+#library(caret)
+#library(mlbench)
+# library(PerformanceAnalytics)
+# library(ISLR)
+#library(leaps)
+#library(MBESS)
+#library(lm.beta)
+library(jtools)
+library(sjstats)
+#library(relaimpo)
+# library(ggstance)
+# library(huxtable)
+```
+
+
+
+
+# 1. Introduction:
+
+In many locations throughout America, constituents are demanding housing solutions from politicians.  Property is becoming increasingly scarce, raising housing prices for younger Americans.  Politicians and political parties must answer these dilemmas by playing a crucial role in shaping the housing landscape.  Politicians do this by establishing zoning, coding, and tax legislation.  
+
+Recent scholarship demonstrates many benefits to high-density residential plans.  An overall increase in efficiency reduces pollution by lessening or eliminating the need for private automobiles and other pollution factors.  Economies of scale allow for efficient distribution of resources such as utilities, medical care, and public transportation.  Culture, education, and job opportunities abound.  As population rises, high-density housing is a solution favored by many politicians.  But with the many benefits of living close to your neighbor comes some costs.  The most noteworthy is crime-rate.  Many politicians are struggling to combat this argument against high-density development.
+
+Crime-rate is a crucial issue for North Carolina voters.  This report is prepared for The Political Party of North Carolina.  The report uses the Cornwell and Trumball, "Estimating the Economic Model of Crime with Panel Data" dataset to inform policymakers on the potential effects of urban development on the crime-rate.  The report details whether expanding urban development will affect North Carolina's crime rate and how North Carolina can plan to minimize crime.  The insight gives policymakers the roadmap to success for policy planning in North Carolina.
+
+The Cornwell and Trumball dataset from here forward referenced as df_crime contains 25 features.  The data represents 90% of the population of counties in North Carolina.  The missing data includes Camden County (29), Carter County (31), Clay County (43), Gates County (73), Graham County (75), Hyde County (95), Jones County (103), Mitchell County (121), Tyrrell County (177) and Yancey County (199).  Missing data in this manager can increase clustering and requires attention during analysis.  It is also important to note that all these counties are incredibly rural, many with populations under 10,000.
+
+Crime rate described as crimes committed per person is the resgressand in this report.  The feature is reported as a proportion between 0 and 1.  As the predicted variable crimes committed per person provides sufficient flexibility to be influenced by several factors that contribute to a successful or unsuccessful crime mitigation regiment, some of which are utilized as covariates.  A central predictor variable in this report is density.  This variable is reported as people per square mile and is presented as a proportion.  
+
+1987 is a constant in the year feature of df_crime.  The year was noted and dropped from further analysis.  Other notable explanatory variables include three proportions related to the severity or stringency of criminal enforcement and prosecution and are label as the probability of arrest, conviction, and sentencing.  The data shows one probability of arrest and one probability of conviction over 1.  Obviously, this number is confusing to interpret but perhaps indicates multiple arrests and convictions.  There is no additional information on the figures, and therefore the numbers remained in the analysis.  There is also an average sentence length variable given in days.  There are nine wage variables described in dollars.
+
+Rounding out the variables for the df_crime dataset are three county government features tax revenue per capita, police per capita, and offense mix.  There are three location variables that describe the broad region in which the county is located.   Finally, there are two demographic features related to minorities and young males.
+
+Data from "crime_v2.csv" is loaded into R using the title df_crime.  The column headers were adjusted to explain precisely the data contained within the variable, no abbreviation.  Although inconvenient for typing, this prevented confusion when analyzing.  The first data analysis step conducted was to evaluate data integrity. Necessary data evaluation steps were performed, such as checking the shape, type, summary as well as inspecting each df_crime column data point individually.  The data inspection was a crucial first step in "getting to know" and understanding the data.
+
+Three data issues required attention after the initial data examination.  First, the data type for the probability of conviction was "factor." A factor data type prevents many numeric function calls from working smoothly, and therefore the variable was coerced into a numeric form using the function as.numeric.
+
+The second issue identified were two data points within the dataset that did not make any statistical sense in context.  The first was datapoint 79 in the people_per_sq_mile or density data column, and the second was point 84 withing the service_wage column.  Both locations, one incredibly small, the outlandishly large, could not be understood within context even as outliers.  After reviewing statistical literature dealing with missing data, it became clear that corrupted data can be a severe problem when also maintaining the integrity of the data.  The best option, according to literature, was to reacquire the data to replace the value with the actual value.  This analysis searched the internet for the original data source and replaced the people_per_sq_mile datapoint with the original and correct data points.  However, the service_wage datapoint appeared incorrectly, even on the original data source.  However, looking at the county and the average of the previous years, the data point was remarkably consistent with a decimal error.  Using the confluence of factors to guide good practice, the data point was reduced by a magnitude of 10 from ~$2177 to 217.  Changing the data point to this figure made the point understandable in context and consistent with previous year data points in the original dataset.
+
+
+# 2. Model building
+
+## 2.1 Exploritory Data Analysis (EDA)
+
+### Load & clean data
+
+
+
+```{r load_clean, tidy=TRUE, tidy.opts=list(width.cutoff=50)}
+# read data file
+df_crime <- read.csv("crime_v2.csv" , header = TRUE)
+# Change column names to more meaningful words
+headers <- c("county_id","year","crimes_committed_per_person",
+             "prob_of_arrest","prob_of_conviction","prob_of_prison_sentence",
+             "avg_sentence_days","police_per_capita", "people_per_sq_mile",
+             "tax_revenue_per_capita","western_NC","central_NC","urban",
+             "percent_minority_1980","wkly_wage_construction",
+             "wkly_wage_transportation_communication_utilities",
+             "wkly_wage_wholesale_retail_trade",
+             "wkly_wage_finance_insurance_real_estate",
+             "wkly_wage_service_industry","wkly_wage_manufacturing",
+             "wkly_wage_fed_employees","wkly_wage_state_employees",
+             "wkly_wage_local_gov_emps",
+             "offense_mix","percent_young_male")
+colnames(df_crime) <- headers
+# remove headers to clean up global environment
+remove(headers)
+# We found two values that we strongly believe are mis-typed decimal places.  We compared these rows
+# in the data file against all the other rows and checked online resources which
+# all pointed to the decimal shifted values being resonable and the original values
+# in the CSV being unreasonable.  We strongly believe that these are the correct
+# values and we would be producing erroreous results if we did not make these changes.
+df_crime$wkly_wage_service_industry[84] <- 217.7068115
+df_crime$people_per_sq_mile[79] <- 0.2034221
+# categorical variables
+df_crime$western_NC <- factor(df_crime$western_NC)
+df_crime$central_NC <- factor(df_crime$central_NC)
+df_crime$urban <- factor(df_crime$urban)
+# drop columns county_it and year
+df_crime <- subset(df_crime , select = -c(county_id , year))
+# DF column prob_of_conviction is factor data type (convert to numeric)
+df_crime$prob_of_conviction <- as.numeric(levels(df_crime$prob_of_conviction))[df_crime$prob_of_conviction]
+# Delete repeated row and NA rows
+df_crime <- df_crime[-c(88), ]
+df_crime <- df_crime[-c(91,92,93,94,95,96), ]
+```
+
+### Scale proportion variable to percents
+
+According to the statistical scholarship found in Wooldridge(2016), proportions cannot be successfully log-transformed as a log transformation when they take extreme values that approach zero.  Therefore this report will scale the proportion by 100 to allow for successful transformations, if necessary.
+
+```{r scale_proportions, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=TRUE, fig.width=14, fig.height=14}
+df_crime$crimes_committed_per_person <- df_crime$crimes_committed_per_person * 100
+df_crime$prob_of_arrest <- df_crime$prob_of_arrest *100
+df_crime$prob_of_conviction <- df_crime$prob_of_conviction * 100
+df_crime$prob_of_prison_sentence <- df_crime$prob_of_prison_sentence * 100
+df_crime$offense_mix <- df_crime$offense_mix * 100
+df_crime$percent_young_male <- df_crime$percent_young_male * 100
+```
+
+### Calculated variables
+
+The expected prision sentence might be a way of thinking about the cost of committing a crime.
+```{r expected_prison_sentence, tidy=TRUE, tidy.opts=list(width.cutoff=60)}
+df_crime$expected_prison_sentence <- (df_crime$prob_of_arrest/100) * (df_crime$prob_of_conviction/100) * (df_crime$prob_of_prison_sentence/100) * df_crime$avg_sentence_days
+```
+
+Average wages is a way of measuring the legal opportinties, but we don't know the distribution
+of industries in each county so the average is a crude measure
+```{r average_wage, tidy=TRUE, tidy.opts=list(width.cutoff=60)}
+df_crime$avg_wage <- colMeans(rbind(df_crime$wkly_wage_construction, df_crime$wkly_wage_transportation_communication_utilities, df_crime$wkly_wage_wholesale_retail_trade, df_crime$wkly_wage_finance_insurance_real_estate, df_crime$wkly_wage_service_industry, df_crime$wkly_wage_manufacturing, df_crime$wkly_wage_fed_employees, df_crime$wkly_wage_state_employees, df_crime$wkly_wage_local_gov_emps), na.rm=TRUE)
+```
+
+Create an variable incdiff (income inequality). Difference between the largest weekly wage and the smallest weekly wage across all sectors
+```{r income_inequality, tidy=TRUE, tidy.opts=list(width.cutoff=50)}
+df_crime$maxwage = pmax(df_crime$wkly_wage_construction, df_crime$wkly_wage_transportation_communication_utilities, df_crime$wkly_wage_wholesale_retail_trade, df_crime$wkly_wage_finance_insurance_real_estate, df_crime$wkly_wage_service_industry, df_crime$wkly_wage_manufacturing, df_crime$wkly_wage_fed_employees, df_crime$wkly_wage_state_employees, df_crime$wkly_wage_local_gov_emps)
+df_crime$mimwage = pmin(df_crime$wkly_wage_construction, df_crime$wkly_wage_transportation_communication_utilities, df_crime$wkly_wage_wholesale_retail_trade, df_crime$wkly_wage_finance_insurance_real_estate, df_crime$wkly_wage_service_industry, df_crime$wkly_wage_manufacturing, df_crime$wkly_wage_fed_employees, df_crime$wkly_wage_state_employees, df_crime$wkly_wage_local_gov_emps)
+df_crime$incdiff = df_crime$maxwage - df_crime$mimwage
+```
+
+### Exploring each variable
+
+The dependent variable, crimes_committed_per_person is unimodal normal right Skewed
+
+```{r crimes_eda, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=FALSE}
+  p1 <- ggplot(data=df_crime, aes(df_crime$crimes_committed_per_person)) + 
+          geom_histogram(aes(y =..density..),
+                 bins=20,
+                 col="grey", 
+                 fill="blue", 
+                 alpha = .2) + 
+      geom_density() + 
+      # labs(caption="Crime rate is unimodal normal right Skewed") +
+      labs(x="Crime Rate", y="Count") +
+      geom_rug() +
+      theme_minimal_grid(12)
+p2 <- ggplot(df_crime, aes(sample=crimes_committed_per_person)) +
+      stat_qq() +
+      stat_qq_line(colour='blue') +
+      theme_minimal_grid(12) 
+  
+plot_row <- plot_grid(p1, p2)
+# now add the title
+title <- ggdraw() + 
+  draw_label(
+    "Crime Rate Density Plot",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+plot_grid(
+  title, plot_row,
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1)
+)
+```
+
+
+
+Probaility of arrest is unimodal normal with right outlier
+
+```{r prob_arrest_eda, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=FALSE}
+  p1 <- ggplot(data=df_crime, aes(prob_of_arrest)) + 
+          geom_histogram(aes(y =..density..), 
+                 bins=20,
+                 col="grey", 
+                 fill="blue", 
+                 alpha = .2) + 
+      geom_density() + 
+      #labs(caption="Probaility of arrest is unimodal normal with right outlier") +
+      labs(x="Probability (ratio)", y="Count") +
+      geom_rug() +
+      theme_minimal_grid(12)
+p2 <- ggplot(df_crime, aes(sample=prob_of_arrest)) +
+      stat_qq() +
+      stat_qq_line(colour='blue') +
+      theme_minimal_grid(12) 
+  
+plot_row <- plot_grid(p1, p2)
+# now add the title
+title <- ggdraw() + 
+  draw_label(
+    "Probability of Arrest",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+plot_grid(
+  title, plot_row,
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1)
+)
+```
+
+
+
+Probability of conviction is unimodal normal with right skew
+
+```{r prob_conviction_eda, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=FALSE}
+  p1 <- ggplot(data=df_crime, aes(prob_of_conviction)) + 
+          geom_histogram(aes(y =..density..),
+                 bins=20,
+                 col="grey", 
+                 fill="blue", 
+                 alpha = .2) + 
+      geom_density() + 
+      # labs(caption="Probability of conviction is unimodal normal with right skew") +
+      labs(x="Probability", y="Count") +
+      geom_rug() +
+      theme_minimal_grid(12)
+p2 <- ggplot(df_crime, aes(sample=prob_of_conviction)) +
+      stat_qq() +
+      stat_qq_line(colour='blue') +
+      theme_minimal_grid(12) 
+  
+plot_row <- plot_grid(p1, p2)
+# now add the title
+title <- ggdraw() + 
+  draw_label(
+    "Probability of Conviction (ratio)",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+plot_grid(
+  title, plot_row,
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1)
+)
+```
+
+
+
+Probability of prison sentence is unimodal with slight left skew
+
+```{r prob_of_prison_sentence_eda, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=FALSE}
+  p1 <- ggplot(data=df_crime, aes(prob_of_prison_sentence)) + 
+          geom_histogram(aes(y =..density..), 
+                 bins=20,
+                 col="grey", 
+                 fill="blue", 
+                 alpha = .2) + 
+      geom_density() + 
+      # labs(caption="Probability of prison sentence is unimodal with slight left skew") +
+      labs(x="Probability", y="Count") +
+      geom_rug() +
+      theme_minimal_grid(12)
+p2 <- ggplot(df_crime, aes(sample=prob_of_prison_sentence)) +
+      stat_qq() +
+      stat_qq_line(colour='blue') +
+      theme_minimal_grid(12) 
+  
+plot_row <- plot_grid(p1, p2)
+# now add the title
+title <- ggdraw() + 
+  draw_label(
+    "Probability of Prison Sentence (ratio)",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+plot_grid(
+  title, plot_row,
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1)
+)
+```
+
+
+
+Avg. Sentence is unimodal with slight right skew
+
+```{r avg_sentence_eda, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=FALSE}
+  p1 <- ggplot(data=df_crime, aes(avg_sentence_days)) + 
+          geom_histogram(aes(y =..density..), 
+                 bins=20,
+                 col="grey", 
+                 fill="blue", 
+                 alpha = .2) + 
+      geom_density() + 
+      # labs(caption="Avg. Sentence is unimodal with slight right skew") +
+      labs(x="Days", y="Count") +
+      geom_rug() +
+      theme_minimal_grid(12)
+p2 <- ggplot(df_crime, aes(sample=avg_sentence_days)) +
+      stat_qq() +
+      stat_qq_line(colour='blue') +
+      theme_minimal_grid(12) 
+  
+plot_row <- plot_grid(p1, p2)
+# now add the title
+title <- ggdraw() + 
+  draw_label(
+    "Average Prison Sentence (days) ",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+plot_grid(
+  title, plot_row,
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1)
+)
+```
+
+
+
+
+Police per capita is unimodal with big outlier
+
+```{r police_per_eda, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=FALSE}
+  p1 <- ggplot(data=df_crime, aes(police_per_capita)) + 
+          geom_histogram(aes(y =..density..), 
+                 bins=20,
+                 col="grey", 
+                 fill="blue", 
+                 alpha = .2) + 
+      geom_density() + 
+      # labs(caption="Police per capita is unimodal with big outlier") +
+      labs(x="Officers", y="Count") +
+      geom_rug() +
+      theme_minimal_grid(12)
+p2 <- ggplot(df_crime, aes(sample=police_per_capita)) +
+      stat_qq() +
+      stat_qq_line(colour='blue') +
+      theme_minimal_grid(12) 
+  
+plot_row <- plot_grid(p1, p2)
+# now add the title
+title <- ggdraw() + 
+  draw_label(
+    "Police per Capita",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+plot_grid(
+  title, plot_row,
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1)
+)
+```
+
+
+
+Density is unimodal with heavy right skew and outliers
+
+```{r density_eda, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=FALSE}
+  p1 <- ggplot(data=df_crime, aes(people_per_sq_mile)) + 
+          geom_histogram(aes(y =..density..), 
+                 bins=20,
+                 col="grey", 
+                 fill="blue", 
+                 alpha = .2) + 
+      geom_density() + 
+      # labs(caption="Density is unimodal with heavy right skew and outliers") +
+      labs(x="Density", y="Count") +
+      geom_rug() +
+      theme_minimal_grid(12)
+p2 <- ggplot(df_crime, aes(sample=people_per_sq_mile)) +
+      stat_qq() +
+      stat_qq_line(colour='blue') +
+      theme_minimal_grid(12) 
+  
+plot_row <- plot_grid(p1, p2)
+# now add the title
+title <- ggdraw() + 
+  draw_label(
+    "People per Sq. Mile",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+plot_grid(
+  title, plot_row,
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1)
+)
+```
+
+
+
+Tax revenue per capita is unimodal with right skew and outlier
+
+```{r tax_pc_eda, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=FALSE}
+  p1 <- ggplot(data=df_crime, aes(tax_revenue_per_capita)) + 
+          geom_histogram(aes(y =..density..), 
+                 bins=20,
+                 col="grey", 
+                 fill="blue", 
+                 alpha = .2) + 
+      geom_density() + 
+      labs(caption="Tax revenue per capita is unimodal with right skew and outlier") +
+      labs(x="Dollars", y="Count") +
+      geom_rug() +
+      theme_minimal_grid(12)
+p2 <- ggplot(df_crime, aes(sample=tax_revenue_per_capita)) +
+      stat_qq() +
+      stat_qq_line(colour='blue') +
+      theme_minimal_grid(12) 
+  
+plot_row <- plot_grid(p1, p2)
+# now add the title
+title <- ggdraw() + 
+  draw_label(
+    "Tax Revenue per Capita",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+plot_grid(
+  title, plot_row,
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1)
+)
+```
+
+
+
+
+Wkly wage construction is normal
+
+```{r wkly_wage_construction_eda, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=FALSE}
+  p1 <- ggplot(data=df_crime, aes(wkly_wage_construction)) + 
+          geom_histogram(aes(y =..density..), 
+                 bins=20,
+                 col="grey", 
+                 fill="blue", 
+                 alpha = .2) + 
+      geom_density() + 
+      # labs(caption="Wkly wage construction is normal") +
+      labs(x="Dollars", y="Count") +
+      geom_rug() +
+      theme_minimal_grid(12)
+p2 <- ggplot(df_crime, aes(sample=wkly_wage_construction)) +
+      stat_qq() +
+      stat_qq_line(colour='blue') +
+      theme_minimal_grid(12) 
+  
+plot_row <- plot_grid(p1, p2)
+# now add the title
+title <- ggdraw() + 
+  draw_label(
+    "Weekly Wages: Construction",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+plot_grid(
+  title, plot_row,
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1)
+)
+```
+
+
+
+Weekly wage Transportation/Communication is normal
+
+```{r wkly_wage_transportation_eda, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=FALSE}
+  p1 <- ggplot(data=df_crime, aes(wkly_wage_transportation_communication_utilities)) + 
+          geom_histogram(aes(y =..density..), 
+                 bins=20,
+                 col="grey", 
+                 fill="blue", 
+                 alpha = .2) + 
+      geom_density() + 
+      # labs(caption="Weekly wage Transportation/Communication is normal") +
+      labs(x="Dollars", y="Count") +
+      geom_rug() +
+      theme_minimal_grid(12)
+p2 <- ggplot(df_crime, aes(sample=wkly_wage_transportation_communication_utilities)) +
+      stat_qq() +
+      stat_qq_line(colour='blue') +
+      theme_minimal_grid(12) 
+  
+plot_row <- plot_grid(p1, p2)
+# now add the title
+title <- ggdraw() + 
+  draw_label(
+    "Weekly Wages: Transportation, Communication, Utilties",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+plot_grid(
+  title, plot_row,
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1)
+)
+```
+
+
+
+Weekly wage wholesale/retail is unimodal right skew with outliers
+
+```{r wkly_wage_retail_eda, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=FALSE}
+  p1 <- ggplot(data=df_crime, aes(wkly_wage_wholesale_retail_trade)) + 
+          geom_histogram(aes(y =..density..), 
+                 bins=20,
+                 col="grey", 
+                 fill="blue", 
+                 alpha = .2) + 
+      geom_density() + 
+      labs(caption="Weekly wage wholesale/retail is unimodal right skew with outliers") +
+      labs(x="Dollars", y="Count") +
+      geom_rug() +
+      theme_minimal_grid(12)
+p2 <- ggplot(df_crime, aes(sample=wkly_wage_wholesale_retail_trade)) +
+      stat_qq() +
+      stat_qq_line(colour='blue') +
+      theme_minimal_grid(12) 
+  
+plot_row <- plot_grid(p1, p2)
+# now add the title
+title <- ggdraw() + 
+  draw_label(
+    "Weekly Wages: Wholesale & Retail Trade",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+plot_grid(
+  title, plot_row,
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1)
+)
+```
+
+
+
+Weekly wage finance/insurance is normal
+
+```{r wkly_wage_finance_eda, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=FALSE}
+  p1 <- ggplot(data=df_crime, aes(wkly_wage_finance_insurance_real_estate)) + 
+          geom_histogram(aes(y =..density..),
+                 bins=20,
+                 col="grey", 
+                 fill="blue", 
+                 alpha = .2) + 
+      geom_density() + 
+      # labs(caption="Weekly wage finance/insurance is normal") +
+      labs(x="Dollars", y="Count") +
+      geom_rug() +
+      theme_minimal_grid(12)
+p2 <- ggplot(df_crime, aes(sample=wkly_wage_finance_insurance_real_estate)) +
+      stat_qq() +
+      stat_qq_line(colour='blue') +
+      theme_minimal_grid(12) 
+  
+plot_row <- plot_grid(p1, p2)
+# now add the title
+title <- ggdraw() + 
+  draw_label(
+    "Weekly Wages: Finance, Insurance, Real Estate",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+plot_grid(
+  title, plot_row,
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1)
+)
+```
+
+
+
+Weekly wage service industry is normal
+
+```{r wkly_wage_service_eda, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=FALSE}
+  p1 <- ggplot(data=df_crime, aes(wkly_wage_service_industry)) + 
+          geom_histogram(aes(y =..density..), 
+                 bins=20,
+                 col="grey", 
+                 fill="blue", 
+                 alpha = .2) + 
+      geom_density() + 
+      # labs(caption="Weekly wage service industry is normal") +
+      labs(x="Dollars", y="Count") +
+      geom_rug() +
+      theme_minimal_grid(12)
+p2 <- ggplot(df_crime, aes(sample=wkly_wage_service_industry)) +
+      stat_qq() +
+      stat_qq_line(colour='blue') +
+      theme_minimal_grid(12) 
+  
+plot_row <- plot_grid(p1, p2)
+# now add the title
+title <- ggdraw() + 
+  draw_label(
+    "Weekly Wages: Service Industry",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+plot_grid(
+  title, plot_row,
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1)
+)
+```
+
+
+
+Weekly wage manufacturing is normal
+
+```{r wkly_wage_manufacturing_eda, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=FALSE}
+  p1 <- ggplot(data=df_crime, aes(wkly_wage_manufacturing)) + 
+          geom_histogram(aes(y =..density..), 
+                 bins=20,
+                 col="grey", 
+                 fill="blue", 
+                 alpha = .2) + 
+      geom_density() + 
+      # labs(caption="Weekly wage manufacturing is normal") +
+      labs(x="Dollars", y="Count") +
+      geom_rug() +
+      theme_minimal_grid(12)
+p2 <- ggplot(df_crime, aes(sample=wkly_wage_manufacturing)) +
+      stat_qq() +
+      stat_qq_line(colour='blue') +
+      theme_minimal_grid(12) 
+  
+plot_row <- plot_grid(p1, p2)
+# now add the title
+title <- ggdraw() + 
+  draw_label(
+    "Weekly Wages: Manufacturing",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+plot_grid(
+  title, plot_row,
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1)
+)
+```
+
+
+
+Weekly wage federal employees is unimodal left skew.
+
+```{r wkly_wage_fed_eda, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=FALSE}
+  p1 <- ggplot(data=df_crime, aes(wkly_wage_fed_employees)) + 
+          geom_histogram(aes(y =..density..), 
+                 bins=20,
+                 col="grey", 
+                 fill="blue", 
+                 alpha = .2) + 
+      geom_density() + 
+      # labs(caption="Weekly wage federal employees unimodal left skew") +
+      labs(x="Dollars", y="Count") +
+      geom_rug() +
+      theme_minimal_grid(12)
+p2 <- ggplot(df_crime, aes(sample=wkly_wage_fed_employees)) +
+      stat_qq() +
+      stat_qq_line(colour='blue') +
+      theme_minimal_grid(12) 
+  
+plot_row <- plot_grid(p1, p2)
+# now add the title
+title <- ggdraw() + 
+  draw_label(
+    "Weekly Wages: Federal Employees",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+plot_grid(
+  title, plot_row,
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1)
+)
+```
+
+
+
+Weekly wage state employees is unimodal left skew
+
+```{r wkly_wage_state_eda, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=FALSE}
+  p1 <- ggplot(data=df_crime, aes(wkly_wage_state_employees)) + 
+          geom_histogram(aes(y =..density..), 
+                 bins=20,
+                 col="grey", 
+                 fill="blue", 
+                 alpha = .2) + 
+      geom_density() + 
+      # labs(caption="Weekly wage state employees is unimodal left skew") +
+      labs(x="Dollars", y="Count") +
+      geom_rug() +
+      theme_minimal_grid(12)
+p2 <- ggplot(df_crime, aes(sample=wkly_wage_state_employees)) +
+      stat_qq() +
+      stat_qq_line(colour='blue') +
+      theme_minimal_grid(12) 
+  
+plot_row <- plot_grid(p1, p2)
+# now add the title
+title <- ggdraw() + 
+  draw_label(
+    "Weekly Wages: State Employees",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+plot_grid(
+  title, plot_row,
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1)
+)
+```
+
+
+
+Weekly wage local gov't is near normal
+
+```{r wkly_wage_local_gvt_eda, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=FALSE}
+  p1 <- ggplot(data=df_crime, aes(wkly_wage_local_gov_emps)) + 
+          geom_histogram(aes(y =..density..), 
+                 bins=20,
+                 col="grey", 
+                 fill="blue", 
+                 alpha = .2) + 
+      geom_density() + 
+      # labs(caption="Weekly wage local gov't is near normal") +
+      labs(x="Dollars", y="Count") +
+      geom_rug() +
+      theme_minimal_grid(12)
+p2 <- ggplot(df_crime, aes(sample=wkly_wage_local_gov_emps)) +
+      stat_qq() +
+      stat_qq_line(colour='blue') +
+      theme_minimal_grid(12) 
+  
+plot_row <- plot_grid(p1, p2)
+# now add the title
+title <- ggdraw() + 
+  draw_label(
+    "Weekly Wages: Local Government Employees",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+plot_grid(
+  title, plot_row,
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1)
+)
+```
+
+
+
+Offense mix is unimodal heavy right skew
+
+```{r offense_mix_eda, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=FALSE}
+  p1 <- ggplot(data=df_crime, aes(offense_mix)) + 
+          geom_histogram(aes(y =..density..), 
+                 bins=20,
+                 col="grey", 
+                 fill="blue", 
+                 alpha = .2) + 
+      geom_density() + 
+      # labs(caption="Offense mix is unimodal heavy right skew") +
+      labs(x="Ratio", y="Count") +
+      geom_rug() +
+      theme_minimal_grid(12)
+p2 <- ggplot(df_crime, aes(sample=offense_mix)) +
+      stat_qq() +
+      stat_qq_line(colour='blue') +
+      theme_minimal_grid(12) 
+  
+plot_row <- plot_grid(p1, p2)
+# now add the title
+title <- ggdraw() + 
+  draw_label(
+    "Mix of face to face vs other offenses",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+plot_grid(
+  title, plot_row,
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1)
+)
+```
+
+
+
+Percent young male is unimodal heavy left skew major outlier
+
+```{r pct_yng_male_eda, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=FALSE}
+  p1 <- ggplot(data=df_crime, aes(percent_young_male)) + 
+          geom_histogram(aes(y =..density..), 
+                 bins=20,
+                 col="grey", 
+                 fill="blue", 
+                 alpha = .2) + 
+      geom_density() + 
+      # labs(caption="Percent young male is unimodal heavy left skew major outlier") +
+      labs(x="Ratio", y="Count") +
+      geom_rug() +
+      theme_minimal_grid(12)
+p2 <- ggplot(df_crime, aes(sample=offense_mix)) +
+      stat_qq() +
+      stat_qq_line(colour='blue') +
+      theme_minimal_grid(12) 
+  
+plot_row <- plot_grid(p1, p2)
+# now add the title
+title <- ggdraw() + 
+  draw_label(
+    "Percentage of young males in population",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+plot_grid(
+  title, plot_row,
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1)
+)
+```
+
+
+
+Expected prison sentence has a major outlier
+
+```{r expected_prison_sentence_eda, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=FALSE}
+  p1 <- ggplot(data=df_crime, aes(expected_prison_sentence)) + 
+          geom_histogram(aes(y =..density..), 
+                 bins=20,
+                 col="grey", 
+                 fill="blue", 
+                 alpha = .2) + 
+      geom_density() + 
+      # labs(caption="Expected prison sentence has a major outlier") +
+      labs(x="Ratio", y="Count") +
+      geom_rug() +
+      theme_minimal_grid(12)
+p2 <- ggplot(df_crime, aes(sample=expected_prison_sentence)) +
+      stat_qq() +
+      stat_qq_line(colour='blue') +
+      theme_minimal_grid(12) 
+  
+plot_row <- plot_grid(p1, p2)
+# now add the title
+title <- ggdraw() + 
+  draw_label(
+    "Expected prison sentence",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+plot_grid(
+  title, plot_row,
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1)
+)
+```
+
+
+
+Percent minority has a unimodal heavy right skew.
+
+```{r percent_minority_eda, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=FALSE}
+  p1 <- ggplot(data=df_crime, aes(percent_minority_1980)) + 
+          geom_histogram(aes(y =..density..), 
+                 bins=20,
+                 col="grey", 
+                 fill="blue", 
+                 alpha = .2) + 
+      geom_density() + 
+      # labs(caption="Percent minority has a unimodal heavy right skew") +
+      labs(x="Ratio", y="Count") +
+      geom_rug() +
+      theme_minimal_grid(12)
+p2 <- ggplot(df_crime, aes(sample=percent_minority_1980)) +
+      stat_qq() +
+      stat_qq_line(colour='blue') +
+      theme_minimal_grid(12) 
+  
+plot_row <- plot_grid(p1, p2)
+# now add the title
+title <- ggdraw() + 
+  draw_label(
+    "Percentage minority population as of 1980",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+plot_grid(
+  title, plot_row,
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1)
+)
+```
+
+
+
+Avg. wage is maybe bimodal - heavy heavy right skew.
+
+```{r avg_wage_eda, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=FALSE}
+  p1 <- ggplot(data=df_crime, aes(avg_wage)) + 
+          geom_histogram(aes(y =..density..), 
+                 bins=20,
+                 col="grey", 
+                 fill="blue", 
+                 alpha = .2) + 
+      geom_density() + 
+      # labs(caption="Avg. wage is maybe bimodal - heavy heavy right skew") +
+      labs(x="Dollars", y="Count") +
+      geom_rug() +
+      theme_minimal_grid(12)
+p2 <- ggplot(df_crime, aes(sample=avg_wage)) +
+      stat_qq() +
+      stat_qq_line(colour='blue') +
+      theme_minimal_grid(12) 
+  
+plot_row <- plot_grid(p1, p2)
+# now add the title
+title <- ggdraw() + 
+  draw_label(
+    "Average Wages",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+plot_grid(
+  title, plot_row,
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1)
+)
+```
+
+Boxplots for location based categoricals.  Eastern is the reference region. 
+
+```{r Boxplots, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=FALSE, fig.height=5, fig.width=8}
+df_crime['eastern_NC'] = 0
+df_crime$eastern_NC[df_crime$western_NC == 0 & df_crime$central_NC == 0] = 1
+df_crime$eastern_NC <- as.factor(df_crime$eastern_NC)
+#layout(matrix(c(1,2,3,4), 2, 3, byrow=TRUE), respect = TRUE)
+p1 <- ggplot(df_crime, aes(x=western_NC, y=crimes_committed_per_person)) + geom_boxplot(aes(fill=western_NC)) + labs(x = "West", y="Crime Rate")
+p2 <- ggplot(df_crime, aes(x=central_NC, y=crimes_committed_per_person)) + geom_boxplot(aes(fill=central_NC)) + labs(x = "Central", y="Crime Rate")
+p3 <- ggplot(df_crime, aes(x=eastern_NC, y=crimes_committed_per_person)) + geom_boxplot(aes(fill=eastern_NC)) + labs(x = "Eastern", y="Crime Rate")
+p4 <- ggplot(df_crime, aes(x=urban, y=crimes_committed_per_person)) + geom_boxplot(aes(fill=urban)) + labs(x = "Urban", y="Crime Rate")
+plot_grid(p1, p2, p3, p4)
+df_crime$eastern_NC <- NULL
+```
+
+The boxplots show there is some small variation in crime between regions, but the distributions between counties that are urban vs not are significantly different.  This lends some evidence to density being a siginficant factor in the model.
+
+
+```{r Urban_Boxplot, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=FALSE,  fig.height = 5, fig.width = 6}
+urban_compare <- melt(df_crime,id.vars = "urban", measure.vars = c("percent_minority_1980", "expected_prison_sentence", "percent_young_male", "offense_mix", "avg_sentence_days",  "prob_of_prison_sentence", "prob_of_conviction", "prob_of_arrest"))
+ggplot(data = urban_compare, aes(x=variable, y=value)) +
+geom_boxplot(aes(fill=urban)) + facet_wrap( ~ variable, scales="free")
+```
+
+Comparing urban across demographic and criminal justice variables, while there is variation in the distrubution, none of the pairing are as distinct as the Urban vs Crime rate plot above. This helps rule out covariates being responsible for the association with urbanness/density.
+
+
+
+Correlation matrix for all variables:
+
+```{r Correlation_matrix, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=TRUE, fig.width=14, fig.height=14}
+nums <- unlist(lapply(df_crime, is.numeric)) 
+res = cor(df_crime[,nums], use = "complete.obs")
+corrplot(res, type = "upper",  
+         tl.col = "black", tl.srt = 45)
+```
+
+### Model Building Process
+
+Based on the exploratory data analysis three models will be explored.  The first model will explain how crime rate is determined by denisty alone.  The second model will explain how crime rate is determined by density along with a measure of severity of penalty (prob arrest/prob conviction/police force size) and the percentage of minorities.  These variables are of interest to political parties.  The judical/enforcement system is a hot political topic as are minority issues.  Politicians gain when they have factual evidience how there policies affect these issues.  Finally a comprehensive regression will be explored to examine numerous covariates which include density, features for county physical location, demographic features, and wage/wealth features.  
+
+### Models defined
+```{r Model_definitions, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=TRUE}
+model.simple <- lm(crimes_committed_per_person ~ people_per_sq_mile, data = df_crime)
+model.restricted <- lm(crimes_committed_per_person ~ people_per_sq_mile + prob_of_arrest + prob_of_conviction + police_per_capita + percent_minority_1980, data = df_crime)
+model.unrestricted <- lm(crimes_committed_per_person ~ people_per_sq_mile + western_NC +
+                      central_NC + prob_of_conviction + prob_of_arrest +
+                      police_per_capita + wkly_wage_construction + percent_young_male +
+                      wkly_wage_fed_employees + wkly_wage_service_industry +
+                      tax_revenue_per_capita + avg_sentence_days +
+                      wkly_wage_transportation_communication_utilities , data = df_crime)
+```
+### Simple Model
+```{r Simple_model, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=TRUE}
+summ(model.simple , digits = 5 , robust = TRUE)
+cv(model.simple)
+summary.aov(model.simple)
+```
+
+Analyzing the results:
+
+First, the simple model shows high statistical significance as the p-value is less than 0.00001.  Therefore, beta_1 = 0 is rejected with confidence.  Density can be thought to affect the crime rate at alpha = .05.  The estimated effect is for every 1% increase in population density, crime rate increases by .9%.  The model's intercept is approximately 2.  Although the intercept provides little useful information about the model, it helps to ensure the model is unbiased by making the mean of the residuals equal to zero.  
+
+The coefficient or slope for the density feature is .90458. .90458 means that for every additional person per square mile the percentage of crimes per person will increase by .90458.  This is both statistically and pratically significant.  The coefficient is found by minimizing the mean square error, which is the variance of the errors plus the square of their mean.  This relationship is why a constant scaler applied to a variable change the mean of the errors but not the variance.
+
+The standard error for the density is 0.07987.  If the CLM assumptions hold, the coefficients are unbiased, and the error is normally distributed.  This measure is a measure of precision, described inversely a measure of noise and must be interpreted along with the units and size of the measured variable.  In this test, given the possibility of heteroscedasticity, a robust standard error measure was used—this statistic is known as the heteroscedasticity consistent covariance matrix or HCCM test.  The formula can be found in the appendix but the HC3 version of HCCM statistic helps adjust for the over-influence of observations with larger-variances in heteroscedastic models.  In this case, the reliability of the observed sample mean of error is acceptable.  Using the coefficient of variation, which is a measure of the relative proportion of variability in the samples compared to the samples themselves.  The coefficient of variation statistic is approximately 38 percent, which is generally considered a low/low-medium error.  
+
+The t value is high for the model suggesting the percent chance that beta_1 = 0 is very low, in fact, 0 to 5 digits of precision.  The p-value listed is the percentage chance that H0 is true given the t-value.  In this model, the students t distribution notes it is improbable.
+
+Finally, the R^2 and adjusted R^2 are 0.52966 and 0.52432, respectively.  Given this is a simple linear model, the R^2 value makes more sense to analyze.  The R^2 value is a goodness-of-fit metric that measures the strength of the relationship between the dependent and independent variables on a 0-1 scale.  This value is over 50%, meaning over half of the variance in the crime rate is explained by density.  .52 is a reliable statistic for the crime rate in df_crime.
+
+Finally, the F statistic is significant.  The F statistic gives the significance of the model as a whole.  It is a function of the sum of squares of the model and the residual figures summarized by the summary.aov function in R but will be further analyzed later in the report.
+
+### Restricted Model
+```{r restricted_model, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=TRUE}
+summ(model.restricted  , vifs = TRUE  , digits = 5 , robust = TRUE)
+cv(model.restricted)
+summary.aov(model.restricted)
+```
+Analyzing the results:
+
+Without rehashing the meaning behind the statistics and only interpreting their values, the restricted model performed very well.  The F statistic of 69.18518 was significant, with a P-value of 0.00000.  The R^2 and adjusted R^2 are .80462 and .79299, respectively.  These figures represent a rather impressive goodness-of-fit for the model.  The coefficients show two positive relationships with the dependent variable and two negative relationships.  The police per capita variable appears to have a substantial effect and square error.  However, when the number is taken in context and consideration of the variable data itself, neither the coefficient nor square error is out of line.  The police per capita variable is a proportion near .0001 in value.  A number of that size requires large coefficients to make a noticeable impact on the dependent variable.  New to this model is the VIF output. The variance inflation factor uses mean square error and R^2 to measure or determine collinearity or multicollinearity in a model.  A 1 denotes uncorrelated variables, whereas 2-5 are moderate, and 5 or above is high.  In this model, all values are below 2, which does not raise in collinearity red flags.  The cv value of 22 percent displays marked improvement of the simple model.
+
+All the coefficients are statistically significant.  Their practical significance requires analysis.  The coefficient of people per square mile is smaller than the simple regression above.  The slope reduced from around .9 to .55, showing that population density has less effect on the crime rate when more factors are introduced to the model and when these factors are controlled. The impact is still practically significant, however, indicating that for every increase in a person per square mile, the percentage of crime rate changes by .55.  The probabilities of arrest and conviction are both negative at approximately -.06 and -.02.  These figures are less practically significant.  The statistics show a 1 percent increase in arrest leads to a .06% decrease in crime rate, and a 1 percent increase in the conviction rate leads to a .02 percent decrease in the crime rate.  Although seemingly small, a 10% increase in the percentage of arrests leads to a .6% decrease in the crime rate.  That number is not devoid of practicality as the crime rate mean is near 2.5%.  The police per capita coefficient is around 814.  The mean value for police per capita is .0017.  These statistics show that if the police per capita were to double is current level from .0017 to .0034, the crime rate would be estimated to increase by 2.767.  Perhaps a better way to consider the practical effect is to think of a population say, 1,000,000 people.  At a ratio of .0017 officers per person, that means the population of 1,000,000 has about 1700 police officers.  It is evident from the analysis that a change of 1 x unit has a substantial change in y unit, but x is not likely to change that much as the current mean x is .0017.  No drastic adjustments lead to practical but not drastic changes in y.  Finally, percent minority is statistically significant, but practically the effect of minorities has a small but noticeable impact on the crime rate.
+
+
+### Unrestricted Model
+```{r unrestricted_model, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=TRUE}
+summ(model.unrestricted , vifs = TRUE ,  digits = 5 , robust = TRUE)
+cv(model.unrestricted)
+summary.aov(model.unrestricted)
+```
+Analyzing the results:
+
+The unrestricted model produced a significant F-statistic of 31.63232 with a p-value of zero to 5 digits.  The R^2 and adjusted R^2 both improved over the restricted model.  The improvement was minimal, growing .04 in R^2 and .02 in adjusted R^2.  This rise is expected, given 8 variables were added to the model.  Of note in the t-values are three variables that show t-value insignificance.  Weekly Construction wage, tax revenue per capita, and weekly wage for transportation communication and utilities all are insignificant at the .05 level of significance.  The VIF statistics show low to moderate collinearity but no major concerns.  As a whole, the model cv value displays a low proportion of error to variable value and is almost identical in value to the restricted model at 22 percent.  The summary.aov function reveals exciting information regarding the model.  4 variables have insignificant F values and therefore suggest an overfit model.
+
+### Comparing Restricted and Unrestricted Models
+```{r compare_restricted_unrestricted, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=TRUE}
+anova(model.restricted , model.unrestricted)
+```
+
+A good model is parsimonious, but the unrestricted model is statistically significant at the alpha = .05 level.  This statistic suggests that the unrestricted model, as a whole, does provide a better fit for the data than the restricted model.  However, as the Df shows, there are 8 more features in the unrestricted model.  If the prediction is not the goal, the smaller model can be preferred, as it is much easier to understand the relationship of the variable.  For that reason, this report chooses the restricted model for continued analysis.
+
+### Transformed Model
+
+Below is an effort to improve normality and linearity by transforming the restricted model.
+
+The first step in a model transformation for this model is to run a Box & Cox analysis on the dependent variable. The Box-Cox transformation take a non-normal dependent variable and recommends a transformation power that gives the variable a more normal shape
+
+
+```{r boxcox, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=TRUE}
+box_cox <- boxCox(model.restricted , family = "yjPower" , plotit = TRUE)
+box_cox
+ranger <- range(box_cox$x[box_cox$y > max(box_cox$y)-qchisq(.95,1)/2])
+((max(ranger) - min(ranger))/2)
+```
+
+The results show a recommended transformation of a cubed root.  The is transformation is applied to the crimes_committed_per_person, or dependent variable below.  
+
+
+```{r crimes_transformed, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=TRUE}
+lambda = (1/3)
+df_crime$crimes.transformed <- yjPower(df_crime$crimes_committed_per_person , lambda)
+```
+
+Now that the dependent variable has been adjusted, the independent variables must be examined.  The independent variables will be analyzed using the boxTidwell method from the car package.  boxTidwell computes the maximum-likelihood estimates for transformation parameters in the independent variables of a regression model.
+
+```{r boxTidwell, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=TRUE}
+boxTidwell(crimes.transformed ~ people_per_sq_mile + prob_of_arrest + prob_of_conviction + police_per_capita + percent_minority_1980, data = df_crime)
+```
+
+The results show only one feature needing transformation.  People_per_sq_mile or density has a significant p-value of .001628.  The maximum likelihood estimate is .016039, which suggests a log transformation of lambda = 0.  The other variables need no transformations as their p-values do not meet the significance threshold.  The transformation is applied below..
+
+```{r crimes_transformed_ypower, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=TRUE}
+lambda = 0
+df_crime$people_per_sq_mile.transformed <- yjPower(df_crime$people_per_sq_mile , lambda)
+```
+
+Next the transformed variables are applied to the regression model.
+
+```{r transformed_regression, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=TRUE}
+model.restricted.transformed <- lm(crimes.transformed ~ people_per_sq_mile.transformed + prob_of_arrest + prob_of_conviction + police_per_capita + percent_minority_1980 , data = df_crime)
+summ(model.restricted.transformed  , vifs = TRUE  , digits = 5 , robust = TRUE)
+summary.aov(model.restricted.transformed)
+```
+
+The data shows the transformation did improve the goodness-of-fit.  The R^squared increased from 0.80462 in the untransformed model to .82784 in the transformed model.  Similarly, adjusted R^2 improved from 0.79299 to .81759.  
+
+```{r compare_transformed_qq, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=TRUE, fig.height=4, fig.width=6}
+plot(model.restricted, which = 2, main="Untransformed model.restricted Q-Q", caption = '', sub.caption = '')
+plot(model.restricted.transformed, which = 2, main="Transformed model.restricted Q-Q", caption = '', sub.caption = '')
+```
+
+The Quantile-quantile plot shows the transformation has indeed increased normality in the model.  However, by applying the transformations, the model became much more challenging to interpret.  A cubed root transformation was applied to the dependent variable, and a log transformation was applied to one independent variable.  Understanding the effect of a change x on y using the transformed model is much more conceptually tricky.
+
+The analysis will proceed with the untransformed model given the ease of interpetation.
+
+
+### Effects
+```{r effect_density, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=TRUE, fig.height=4, fig.width=6}
+effect_plot(model.restricted, pred = people_per_sq_mile , interval = TRUE , plot.points = TRUE)
+```
+
+People per square mile has a positive relationship with crime rate.
+
+```{r effect_pol_per_cap, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=TRUE, fig.height=4, fig.width=6}
+effect_plot(model.restricted, pred = police_per_capita , interval = TRUE , plot.points = TRUE)
+```
+
+Police per capita variable appears to have a substantial effect but the x value is small.
+
+```{r effect_pct_minority, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=TRUE, fig.height=4, fig.width=6}
+effect_plot(model.restricted, pred = percent_minority_1980 , interval = TRUE , plot.points = TRUE)
+```
+
+Percentage minorites has a positive relationship with crime rate.
+
+```{r effect_prob_arrest, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=TRUE, fig.height=4, fig.width=6}
+effect_plot(model.restricted, pred = prob_of_arrest , interval = TRUE , plot.points = TRUE)
+```
+
+Probability of arrest has a negative relationship with crime rate.
+
+```{r effect_prob_conv, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=TRUE, fig.height=4, fig.width=6}
+effect_plot(model.restricted, pred = prob_of_conviction , interval = TRUE , plot.points = TRUE)
+```
+
+Probability of conviction has a negative relationship with crime rate.
+
+
+<!--
+### Relative Importance
+```{r relative_importance, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=TRUE, fig.width=10, fig.height=10}
+# boot <- boot.relimp(model.restricted, b = 10000 , type = c("lmg" , "last" , "first" , "pratt") , rank = TRUE ,
+   #                 diff = TRUE , rela = TRUE)
+# plot(booteval.relimp(boot, sort = TRUE))
+```
+ -->
+
+### Plot Coefficient Summary
+
+```{r Plot_Coefficient_Summary, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=TRUE, fig.height=3.5, fig.width=6}
+plot_summs(model.restricted , scale = TRUE)
+```
+
+```{r Plot_Coefficient_Summary_Compare, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=TRUE, fig.height=5, fig.width=10}
+plot_summs(model.simple , model.restricted , model.unrestricted , scale = TRUE , plot.distributions = TRUE)
+```
+
+Although the coefficents have similar variances across all three models, they are more constrained in our restricted model. 
+<!--
+```{r Plot_Coefficient_Plot, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=TRUE, fig.width=8, fig.height=8, results = 'asis'}
+layout(matrix(1:4,2,2))
+plot(model.restricted)
+```
+-->
+
+# Regression Table 
+
+```{r regression_table, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=TRUE, results = 'asis', fig.height=3.5, fig.width=6}
+export_summs(model.simple , model.restricted , model.unrestricted , scale = TRUE)
+```
+
+# CLM Assumptions
+
+## Assumption #1: Linear in parameters
+It is reasonable to assume that the population model is linear in parameters.  There aren't any obvious multiplicitave or other non-linear effects between parameters.
+
+## Assumption #2: Random sampling
+In for the demographic variables, census values are used so they can be considered representative of each county's population and we can assume that the bureau's methods do not violate I.I.D.  The crime variables are taken the FBI's complete database of arrests, convictions and sentances, so no sampling has occurred.  Similarly, the number of police employeed would have been taken from a complete list without any sampling.  There are also a few counties missing from the list, and since each county is an entire non-random subset of the population, this may introduce some clustering effects. In a technical sense, an aspect of assumption 2 has been violated, however it does not appear that these violation would introduce a relationship between variables due to the sampling method, but we may want to think conservatively about our standard error values.  
+
+## Assumption #3: No perfect colinearity 
+We did not find any perfect colinear relationships in our correlation matrix. We do not have any reason to believe that this assumption has been violated in the sample or the population.
+
+## Assumption #4: Zero conditional mean
+Examing the following residuals vs fitted plot, the mean of the errors is very nearly zero, with the exception of two data points to the far left that are not near enough to any other points to have their error terms cancel.  An the caluclated mean of the residuals is nearly zero.
+
+```{r residuals_fitted, tidy=TRUE, echo=FALSE, fig.height = 3.5, fig.width = 6}
+plot(model.restricted, which = 1, main="Residuals vs Fitted", caption = '', sub.caption = '')
+```
+
+```{r mean_residuals, tidy=TRUE, echo=FALSE}
+cat("Mean of residuals: ",mean(model.restricted$residuals))
+```
+
+## Assumption #5: Constant variance in the error term (homoscedasticity)
+Also, the residual vs fitted plot above does not appear to fan out in either direction, and although autocorrelation seems unlikely based on our dataset, we can see further evidence supporting that assumption. 
+Examining the scale location plot below, although we can see the trend line sloping up to the right, meaning that the variance is not constant, it's difficult to say it is definitvely homoscedastic. We can further examine this with a Breusch-Pagan test.
+
+```{r scale_location, tidy=TRUE, echo=FALSE, fig.height = 3.5, fig.width = 6}
+plot(model.restricted, which = 3, main="Scale-Location (Homoscedasticity Test)", caption = '', sub.caption = '')
+```
+
+
+```{r bptest, tidy=TRUE, echo=FALSE}
+bptest(model.restricted)
+```
+
+With a p-value considerably less than 0.05, we can reject the null hypothesis of homoscedasticity.  It is likely we are seeing the effects of our variables being representative of the true population, but not being truely random samples.  Fortunately we can use heteroscedasticity-consistent standard errors to address potential bias in our estimators.
+
+## Assumption #6: Normal distribution of error terms
+In the histogram below, the residual terms are mostly normal, but there is some deviation and a notable outlier on the right.  It is not clear if the CLT will allow us to treat this as normal without further examination.
+
+```{r residual_histogram, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=FALSE, fig.height = 3.5, fig.width = 6}
+#hist(model.restricted$residuals, breaks = 20, main="Residuals Densitiy", xlab="Residual")
+ggplot(data=model.restricted, aes(model.restricted$residuals)) + 
+     ggtitle("Residuals Densitiy") +
+          geom_histogram(aes(y =..density..),
+                 bins=20,
+                 col="grey", 
+                 fill="red", 
+                 alpha = .2) + 
+      geom_density() + 
+      # labs(caption="Crime rate is unimodal normal right Skewed") +
+      labs(x="Residual", y="Frequency") +
+      geom_rug() +
+      theme_minimal_grid(12)
+```
+
+In the Q-Q plot below, we can see that the vast majority of the obeservations are very close to the regression line.  There are a few obvious deviations on the right side, so we will conduct a Shiapro-Wilk test to numerically confirm normality of the error term distribution.
+
+```{r normal_qq, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=FALSE, fig.height = 3.5, fig.width = 6}
+plot(model.restricted, which = 2, main="Normal Q-Q", caption = '', sub.caption = '')
+```
+
+
+
+```{r shapiro, tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=FALSE}
+shapiro.test(model.restricted$residuals)
+```
+
+With a p-value > 0.05 we do not have enough evidence to reject the null hypothesis that residuals are normally distributed.  
+
+# A Discussion of Omitted Variables
+
+## 1. Sector-weighted average weekly wage
+
+Though the weekly wage variable is provided for each of all major sectors, distribution of workforce by sector is not provided. Sector-weighted average weekly wage would be a more precise variable than a plain average weekly wage. 
+
+Assumptions on the relationships with variables in the restricted variables:
+
+Crime rate: 
+In the exploratory data analysis section, the wage variables have more or less positive correlation with crime rate and density. The wage for federal employees has a stronger correlation with crime rate while the wage for workers in transportations, utilities and communication sectors has a lower correlation. Therefore, we believe the sector-weighted average wage variable would have a stronger positive relationship with crime rate than the plain average variable. 
+
+Density: 
+Similar to all wage variables, the weighted average wage variable should have a fairly strong positive correlation with density, so the coeffient should be positive. Since density has a positive coefficient in our model, the omitted variable bias should be positive and fairly significant, and thus driving the coefficient of density upwards.
+
+Police per capita: 
+Wage variables seems to be uncorrelated with police per capita for workers in all sectors except for local government employees. The percetange of local government employees in workforce is generally small. Therefore the weighted-average weekly wage is approximately uncorrelated with police per capita. No bias is assumed.
+
+Percentage of minority: 
+All sector wage variables are weakly negatively correlated with percentange of minority, so the weighted-average wage variable should also follow the same pattern. Given that percentage of minority is weakly positively correlated with crime rate, the bias is insignificantly negative, driving the coefficient towards zero slightly.
+
+Probability of arrest and probability of conviction: 
+Similar to all wage variables, the weighted-average weekly wage is also uncorrelated with probabilities of conviction and of arrest. We believe the omitted variable does not introduce bias to the coefficients of the two variables.
+
+## 2. Average number of years of education that residents have completed in each county. 
+
+Since all wage variables have weak relationships with crime rate, education coule be a more precise variable that has a stronger relationship with crime rate.
+
+Assumptions on the relationships with variables in the restricted variables:
+
+Crime rate: 
+The level of education a person have completed would be negatively correlated to possibility of conducting crime, especially face-to-face crime such as robbery and violence.
+
+Density: 
+A dense area is usually an urban city. Residents in urban city would have a higher education on average, and this correlation might be strong. Since density has a postive coefficient in our model and the omitted variable bias is negative and fairly significant, it would drive the coefficient of density towards zero.
+
+Police per capita: 
+Residents' education seems to be uncorrelated with police per capita. We believe the omitted variable does not introduce a bias to the coefficient of police per capita.
+
+Percentage of minority: 
+In late 1980s, the proportion of minority students attending colleges/universities increased but remained below the proportion of whites attending such institution. Therefore, the correlation between the two variables assumes to be strongly negative, and the omitted variable bias is significantly positive. Since percentage of minority is positively correlated with crime rate, the omitted variable bias drives the coefficient of percentage of minority away from zero.  
+
+(Reference:https://www.nytimes.com/1992/01/20/us/minority-college-attendance-rose-in-late-80-s-report-says.html)
+
+Probabilities of arrest and of conviction:  
+Residents' education seems to be uncorrelated with probability of arrest and of conviction because it does not affect local government law enforcement. We believe there is no bias to the coefficients of two variables.
+
+## 3. Unemployment rate of each county
+
+Job loss may affect one's well-being from both financial and mental aspects. 
+
+Assumptions on the relationships with variables in the restricted variables:
+
+Crime rate: 
+Research has shown that people who lose jobs for reasons that generally are not socially acceptable are likely to commit non-face-to-face crime such as robbery. Therefore, unemployment rate may have a positive relationship with crime rate.
+
+Density: 
+There is no clear causal relationship between density and unemployment rate because unemployment depends more on the pace of population growth than on density. In addition, density is affected by proportion of unusable land to the total land area. This means people in less dense area may mostly work in a small range. Also, job opportunities are created from market demand and government. Although densely populated area may create more opportunities from market demand, the correlation may be affected by many other factors and the fact that 1987 is a year of economic recession. Therefore the correlation between density and unemployment may be weakly negative. The bias assumes to be insignificantly negative, and thus may drive the coefficient of density towards zero.
+
+Police per capita and Probability of arrest:
+Similar to above, there is no causal relationship between police per capita and unemployment rate because policymakers do not change the way they deploy policy force directly due to the change of unemployment rate. Therefore, no bias is considered for both variables.
+
+Percentage of minority: 
+During economic recession in late 1980s, more minorities lost jobs than majorities, so unemployment rate is strongly positively correlated with percentage of minority. The bias is assumed to be positive. Since percentage of minority is postively correlated to crime rate, the bias may significantly drive the coefficient away from zero.
+
+probability of conviction: 
+Unemployed people can unlikely get legal support or hire laywers, so the probability of conviction is positively correlated with unemployment rate. The bias would be negative. Since probability of conviction is negatively correlated with crime rate, the bias drive the coefficient of probability of conviction towards zero. However, the affect may be small as there is no strong evidence of a strong relationship between the two variables.
+
+## 4. House vacancy rate
+
+It makes intuitive sense that it's easier to conduct property crime in vacant houses. House may be vacant due to too many investors but market demand is less than supply. At the same time, it seems to not correlate with all explanatory variables.
+
+Assumptions on the relationships with variables in the restricted variables:
+
+Crime rate: 
+This is most likely postively correlated with crime rate, especially non-face-to-face crime rate.
+
+Density: 
+Densely populated areas may have less vacant houses. However, it depends on whether house construction outpaces population growth and also depends on people's purchasing behaviour (the proportion of houses bought for investment purpose). Therefore, we believe the negative correlation is weak, and thus the bias is insignificantly negative. Since density has a positive coefficient in our model, the bias drives the coefficient of density towards zero.
+
+Police per capita, Percentage of minority, Probability of arrest and Probability of conviction: 
+There is no causal relationship between house vacancy rate and each of the four variables. Therefore, no bias is considered.
+
+## 5. Ratio of white-collar to blue-collar workers
+
+White-collar workers are more likely to conduct nonviolent and non-face-to-face crimes than blue-collar workers. It is very likely negatively correlated with the variable of offense mix of crimes. Hence this variable can be used as a proxy of the ratio to determine its relationship with crime rate.
+
+Assumptions on the relationships with variables in the restricted variables:
+
+Crime rate: 
+From the earlier EDA, offense mix of crimes correlates with crime rate weakly negatively. This means that there are more nonviolent and non-face-to-face crimes than face-to-face crimes. Therefore, the ratio of white-collar to blue-collar workers may be positively correlated with crime rate, but not too significantly.
+
+Density: 
+Densely populated areas are usually urban cities, where there are more white-collars than blue-collars.Hence, the ratio is strongly positively correlated with density, and thus the bias is significantly positive. Since density positively correlated with crime rate, the bias drives the coefficient of density away from zero.
+
+Police per capita, Probability of arrest, Probability of conviction: 
+There is no causal relationship between the ratio and each of the three variables. Therefore, no bias is considered.
+
+Percentage of minority: 
+In 1980s, the percentage of minority in blue collar is higher than in white collar. This means the ratio has a strong negative correlation with the percentage of minority, and thus the bias is significantly negative. Since the minority variable positively correlates with crime rate, we can conclude that the bias drives the coefficient of the percentage of minority towards zero.
+
+## 6. Poverty rate
+
+Poverty rate can be a stronger variable than unemployment rate as some unemployed people receive social welfare and actively look for new jobs.
+
+Assumptions on the relationships with variables in the restricted variables:
+
+Its relationship with all variables except density variable in the restricted model is expected to be same as and even stronger than unemployment rate.
+
+Crime rate, Police per capita, Percentage of minority, Probability of arrest and Probability of conviction: 
+Bias assumption is similar to and stronger than that of unemployment rate. (Please refer to # 3. Unemployment rate of each county.)
+
+Density: 
+Just as there are more homeless and beggars in central downtown areas of urban cities, high density areas may have more people under poverty line. Therefore, there could be a positive relationship between density and porverty rate, and thus the bias is assumed to be positive. Since density and crime rate has a positive correlation, the bias drives the coefficient of density upward. However, the bias size may be small because people under poverty would likely live in either highly densed areas (urban cities) or very low density areas (rural areas that have very low GDPs), but suburban areas would probably have a moderate proverty rate.
+
+
+```{r tidy=TRUE, tidy.opts=list(width.cutoff=50), echo=TRUE, fig.width=14, fig.height=14}
+```
+
+# Conclusion
+
+Recommendations:
+
+Statistical analysis of the North Carolina data from 1987 produced three main policy recommendations to reduce the crime rate in North Carolina.  First, government policy must support a limited but effective law enforcement regime.  Second, policymakers have a responsibility to address the needs of minority groups within the state.  Third, government planners need to commit to the development of low-population density zoning, and city planners should focus on city population expansion rather than concentration.
+
+The statistical analysis leads to the policy recommendation of a competent, efficient, but limited law enforcement system as the most successful method in reducing the crime rate.  A high number of police officers per person were not correlated with a reduction in crime; however, the effectiveness of the police force as measured in the probability of arrest/conviction was correlated.  Policymakers should support a limited but well trained and well-equipped police force.  This policy reduces the size of police forces and uses the saved funding to increase training and technology, making the force more efficient at identifying and arresting criminals.  In combination with a talented police force, policymakers must recruit skilled prosecutors.  Skilled prosecutors will increase the conviction rate as an import piece in the law enforcement system.  A law enforcement system, as described, will prove to be a strong deterrent for criminals.
+
+Second, policymakers must focus on minority communities.  Higher minority populations corresponded to higher crime rates due to unobserved factors.  Other studies have shown issues such as low economic opportunity, lagging education institutions, poor nutritional options, higher psychological stress rates, and law enforcement bias to be factors.  These issues were unobserved in this study but could be addressed by policymakers.  Policymakers should devote resources to better understanding minority community issues and providing opportunities and education to the community to reduce crime.
+
+Finally, city planners must limit high-density development in the near term.  Planners should look to increase the attractiveness of rural and suburban areas while implementing efficient law enforcement regimes.  Once law enforcement policies are firmly established then, zoning restrictions can be reevaluated and perhaps relaxed without effect.  In this way, policymakers can ensure controlled but safe growth within the state.
